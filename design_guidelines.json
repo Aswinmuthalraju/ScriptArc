@@ -1,0 +1,144 @@
+{
+  "project_name": "ScriptArc",
+  "design_identity": {
+    "theme": "The Electric Academy",
+    "core_concept": "Professional Gamification",
+    "visual_style": "Dark Mode Cyber-Tech (Not Gaming)",
+    "primary_mood": "Focus, Progression, High-Tech"
+  },
+  "typography": {
+    "primary_font": "Outfit",
+    "secondary_font": "Manrope",
+    "code_font": "JetBrains Mono",
+    "heading_styles": {
+      "h1": "text-5xl md:text-7xl font-bold tracking-tight text-white",
+      "h2": "text-4xl md:text-5xl font-semibold tracking-tight text-white",
+      "h3": "text-2xl md:text-3xl font-semibold text-white",
+      "h4": "text-xl md:text-2xl font-medium text-gray-200"
+    },
+    "body_styles": {
+      "base": "text-base text-gray-400 leading-relaxed font-light",
+      "large": "text-lg text-gray-300 leading-relaxed",
+      "small": "text-sm text-gray-500"
+    }
+  },
+  "colors": {
+    "palette": {
+      "background": "#05050F",
+      "surface": "#0A0A14",
+      "surface_highlight": "#12121A",
+      "primary": "#008CFF",
+      "secondary": "#7800FF",
+      "accent": "#00FFB4",
+      "warning": "#FF8C00",
+      "cyan": "#00C8FF",
+      "text_primary": "#FFFFFF",
+      "text_secondary": "#94A3B8",
+      "border": "#1E293B"
+    },
+    "semantic_roles": {
+      "action_primary": "bg-[#008CFF] hover:bg-[#0070CC] text-white shadow-[0_0_15px_rgba(0,140,255,0.5)]",
+      "action_secondary": "bg-[#1A1A2E] border border-[#7800FF] text-[#7800FF] hover:bg-[#7800FF]/10",
+      "success_state": "text-[#00FFB4] border-[#00FFB4]/30 bg-[#00FFB4]/10",
+      "streak_fire": "text-[#FF8C00] drop-shadow-[0_0_8px_rgba(255,140,0,0.6)]",
+      "code_editor_bg": "#0D0D15"
+    }
+  },
+  "layout_strategies": {
+    "landing_page": {
+      "grid_type": "The Tetris Grid",
+      "hero_section": "Full-screen interactive BackgroundGradientAnimation with centered typography.",
+      "features_section": "Bento Grid (3 columns). Mix of 1x1, 2x1, and 2x2 cards.",
+      "spacing": "Gap-6 to Gap-8 for breathing room."
+    },
+    "dashboard": {
+      "grid_type": "High Density Grid",
+      "structure": "Grid-cols-12. Sidebar (2 cols), Main Content (7 cols), Right Panel (3 cols - Leaderboard/Events).",
+      "widgets": "Card-based with sharp corners or small rounded-md. Glassmorphism headers."
+    },
+    "course_page": {
+      "grid_type": "Split Screen Focus",
+      "video_player": "Top (Mobile) / Left (Desktop 60%). Custom skin.",
+      "code_editor": "Bottom (Mobile) / Right (Desktop 40%). Collapsible panels.",
+      "challenge_markers": "Diamond-shaped indicators on progress timeline."
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "rounded-md bg-primary text-white font-medium hover:scale-105 transition-all duration-200 shadow-lg shadow-primary/20",
+      "secondary": "rounded-md border border-input bg-transparent hover:bg-accent hover:text-accent-foreground",
+      "ghost": "hover:bg-accent hover:text-accent-foreground",
+      "cyber": "relative overflow-hidden border border-primary/50 text-primary hover:bg-primary/10 hover:shadow-[0_0_20px_rgba(0,140,255,0.4)] transition-all"
+    },
+    "cards": {
+      "base": "bg-[#0A0A14]/80 backdrop-blur-md border border-white/5 hover:border-primary/30 transition-colors duration-300 rounded-lg",
+      "interactive": "cursor-pointer hover:-translate-y-1 hover:shadow-xl shadow-black/50"
+    },
+    "inputs": {
+      "style": "bg-[#12121A] border-white/10 focus:border-primary focus:ring-1 focus:ring-primary/50 rounded-md text-white placeholder:text-gray-600"
+    },
+    "navigation": {
+      "header": "fixed top-0 w-full z-50 bg-[#05050F]/80 backdrop-blur-xl border-b border-white/5",
+      "sidebar": "fixed left-0 h-full bg-[#05050F] border-r border-white/5 w-64 hidden lg:flex flex-col"
+    },
+    "gamification": {
+      "progress_bar": "h-2 bg-gray-800 rounded-full overflow-hidden [&>div]:bg-gradient-to-r [&>div]:from-primary [&>div]:to-cyan-400",
+      "badge": "hexagon-shape bg-gradient-to-br from-purple-900 to-slate-900 border border-purple-500/30 text-purple-200"
+    }
+  },
+  "visual_enhancers": {
+    "glow_effects": "Use drop-shadow-md for text on dark backgrounds. Use box-shadow for active states.",
+    "gradients": "Subtle linear gradients for card backgrounds (top-left to bottom-right). NO global full-screen gradients except Hero.",
+    "borders": "1px solid borders with 5-10% opacity for structure. Active elements get 100% opacity borders.",
+    "textures": "Use subtle noise overlay opacity-5 on the main background to reduce digital banding."
+  },
+  "images": {
+    "hero_background": {
+      "url": "use_component_BackgroundGradientAnimation",
+      "alt": "Interactive Gradient"
+    },
+    "student_focused": {
+      "url": "https://images.unsplash.com/photo-1650661926447-9efb2610f64c?crop=entropy&cs=srgb&fm=jpg&q=85",
+      "alt": "Focused coding student in dark environment",
+      "category": "landing_page_audience"
+    },
+    "tech_abstract": {
+      "url": "https://images.unsplash.com/photo-1771875802933-96402f31a45a?crop=entropy&cs=srgb&fm=jpg&q=85",
+      "alt": "Futuristic blue neon abstract lines",
+      "category": "background_texture"
+    },
+    "mentor_team": {
+      "url": "https://images.unsplash.com/photo-1760611656615-db3fad24a314?crop=entropy&cs=srgb&fm=jpg&q=85",
+      "alt": "Tech team collaborating in modern office",
+      "category": "about_section"
+    },
+    "community": {
+      "url": "https://images.unsplash.com/photo-1760611656007-f767a8082758?crop=entropy&cs=srgb&fm=jpg&q=85",
+      "alt": "Collaborative coding session",
+      "category": "community_section"
+    }
+  },
+  "accessibility": {
+    "contrast_check": "Ensure all text on #05050F is #94A3B8 or lighter.",
+    "interactive_states": "Focus rings must be Cyan (#00C8FF) for visibility.",
+    "reduced_motion": "Disable BackgroundGradientAnimation if prefers-reduced-motion is true."
+  },
+  "instructions_to_main_agent": {
+    "1": "Install 'lucide-react' for icons. Use strictly. No emoji icons.",
+    "2": "Install '@fontsource/outfit', '@fontsource/manrope', '@fontsource/jetbrains-mono' in main.jsx/index.js.",
+    "3": "Configure Tailwind theme to match the 'colors' object precisely.",
+    "4": "For the Video Player, build a custom control bar. Do not use default HTML5 controls.",
+    "5": "For the Code Editor, use 'react-monaco-editor' or 'CodeMirror' tailored to the dark theme.",
+    "6": "Implement 'BackgroundGradientAnimation' as the hero background (z-0). Content goes in z-10.",
+    "7": "Use 'Sonner' for all notifications (Success: Neon Green, Error: Red/Orange).",
+    "8": "Dashboard must have a 'Streak Flame' animation in the top right.",
+    "9": "Authentication pages (Login/Signup) should be centered cards on the 'tech_abstract' background."
+  },
+  "universal_guidelines": [
+    "Do NOT use gradients for text (accessibility).",
+    "Do NOT use rounded-xl or higher. Keep it sharp (rounded-md or rounded-sm) for a 'Tech' feel.",
+    "Always add 'data-testid' to interactive elements.",
+    "Use 'grid' layouts over 'flex' for main page structures.",
+    "Ensure the 'Continue Learning' button is the most prominent element on the Dashboard."
+  ]
+}
