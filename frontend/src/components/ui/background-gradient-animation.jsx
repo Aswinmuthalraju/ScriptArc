@@ -79,9 +79,9 @@ export const BackgroundGradientAnimation = ({
           </filter>
         </defs>
       </svg>
-      
+
       <div className={cn("relative z-10", className)}>{children}</div>
-      
+
       <div
         className={cn(
           "gradients-container absolute inset-0 blur-lg pointer-events-none",

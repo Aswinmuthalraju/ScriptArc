@@ -1,15 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { courseAPI, seedAPI } from '@/lib/api';
+import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import { toast } from 'sonner';
-import { 
-  Search, 
-  Clock, 
-  BarChart, 
+import {
+  Search,
+  Clock,
+  BarChart,
   Users,
   Code2,
   Star,
@@ -36,14 +35,16 @@ const Courses = () => {
 
   const fetchCourses = async () => {
     try {
-      // Seed data first
-      await seedAPI.seed().catch(() => {});
-      
-      const response = await courseAPI.getAll();
-      setCourses(response.data);
+      const { data, error } = await supabase
+        .from('courses')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (!error && data) {
+        setCourses(data);
+      }
     } catch (error) {
-      console.error('Failed to fetch courses:', error);
-      toast.error('Failed to load courses');
+      // Table may not exist yet — show empty state
     } finally {
       setLoading(false);
     }
@@ -51,7 +52,7 @@ const Courses = () => {
 
   const filteredCourses = courses.filter((course) => {
     const matchesSearch = course.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         course.description.toLowerCase().includes(searchQuery.toLowerCase());
+      course.description.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesLevel = selectedLevel === 'all' || course.level === selectedLevel;
     return matchesSearch && matchesLevel;
   });
@@ -69,11 +70,11 @@ const Courses = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl md:text-4xl font-outfit font-bold text-white mb-2">
+          <h1 className="text-3xl md:text-4xl font-outfit font-bold text-foreground mb-2">
             Explore Courses
           </h1>
           <p className="text-text-secondary">
-            Choose your path and start earning stars
+            Choose your path and start earning points
           </p>
         </div>
 
@@ -109,27 +110,27 @@ const Courses = () => {
         {filteredCourses.length > 0 ? (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredCourses.map((course) => (
-              <Card 
+              <Card
                 key={course.id}
                 className="card-glass overflow-hidden cursor-pointer hover:-translate-y-1 transition-all group"
                 onClick={() => navigate(`/courses/${course.id}`)}
                 data-testid={`course-card-${course.id}`}
               >
                 <div className="relative h-48 overflow-hidden">
-                  <img 
-                    src={course.thumbnail_url || 'https://images.unsplash.com/photo-1526379095098-d400fd0bf935?w=800'} 
+                  <img
+                    src={course.thumbnail_url || 'https://images.unsplash.com/photo-1526379095098-d400fd0bf935?w=800'}
                     alt={course.title}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-background/80 to-transparent" />
-                  <Badge 
+                  <Badge
                     className={`absolute top-3 left-3 ${levelColors[course.level]} border`}
                   >
                     {course.level}
                   </Badge>
                 </div>
                 <CardContent className="p-5">
-                  <h3 className="text-lg font-outfit font-semibold text-white mb-2 line-clamp-1">
+                  <h3 className="text-lg font-outfit font-semibold text-foreground mb-2 line-clamp-1">
                     {course.title}
                   </h3>
                   <p className="text-text-secondary text-sm mb-4 line-clamp-2">
@@ -158,7 +159,7 @@ const Courses = () => {
         ) : (
           <div className="text-center py-16">
             <Code2 className="w-16 h-16 text-text-secondary mx-auto mb-4" />
-            <h3 className="text-xl text-white font-outfit mb-2">No courses found</h3>
+            <h3 className="text-xl text-foreground font-outfit mb-2">No courses found</h3>
             <p className="text-text-secondary">
               Try adjusting your search or filters
             </p>

@@ -1,72 +1,112 @@
 import { createContext, useContext, useState, useEffect } from 'react';
-import { authAPI, streakAPI } from '@/lib/api';
+import { supabase } from '@/lib/supabase';
 
 const AuthContext = createContext(null);
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
+  if (!context) throw new Error('useAuth must be used within an AuthProvider');
   return context;
 };
+
+const buildUserFromSession = (authUser) => ({
+  id: authUser.id,
+  email: authUser.email,
+  name: authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || 'User',
+  role: authUser.user_metadata?.role || 'student',
+  total_stars: 0,
+  avatar_url: authUser.user_metadata?.avatar_url || null,
+});
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    checkAuth();
+    let mounted = true;
+
+    // Hard 2s safety timeout — loading WILL resolve no matter what
+    const giveUp = setTimeout(() => {
+      if (mounted) setLoading(false);
+    }, 2000);
+
+    const fetchExtendedUser = async (sessionUser) => {
+      try {
+        const { data, error } = await supabase
+          .from('users')
+          .select('*, avatar_id')
+          .eq('id', sessionUser.id)
+          .single();
+
+        if (!error && data) {
+          setUser({ ...buildUserFromSession(sessionUser), ...data });
+        } else {
+          setUser(buildUserFromSession(sessionUser));
+        }
+      } catch (err) {
+        setUser(buildUserFromSession(sessionUser));
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    // Subscribe first so we don't miss events that fire before getSession resolves
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        if (!mounted) return;
+        if (event === 'INITIAL_SESSION') {
+          clearTimeout(giveUp);
+          if (session?.user) {
+            fetchExtendedUser(session.user);
+          } else {
+            setLoading(false);
+          }
+        } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+          if (session?.user) {
+            fetchExtendedUser(session.user);
+          } else {
+            setLoading(false);
+          }
+        } else if (event === 'SIGNED_OUT') {
+          setUser(null);
+          setLoading(false);
+        }
+      }
+    );
+
+    return () => {
+      mounted = false;
+      clearTimeout(giveUp);
+      subscription.unsubscribe();
+    };
   }, []);
 
-  const checkAuth = async () => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      try {
-        const response = await authAPI.getMe();
-        setUser(response.data);
-        // Update streak on app load
-        await streakAPI.update().catch(() => {});
-      } catch (error) {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-      }
-    }
-    setLoading(false);
-  };
-
   const login = async (email, password) => {
-    const response = await authAPI.login({ email, password });
-    const { token, user } = response.data;
-    localStorage.setItem('token', token);
-    localStorage.setItem('user', JSON.stringify(user));
-    setUser(user);
-    return user;
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    return data.user;
   };
 
   const register = async (name, email, password, role = 'student') => {
-    const response = await authAPI.register({ name, email, password, role });
-    const { token, user } = response.data;
-    localStorage.setItem('token', token);
-    localStorage.setItem('user', JSON.stringify(user));
-    setUser(user);
-    return user;
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { full_name: name, role } },
+    });
+    if (error) throw error;
+    return data.user;
   };
 
-  const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+  const logout = async () => {
+    await supabase.auth.signOut();
     setUser(null);
   };
 
-  const updateUser = (updates) => {
-    setUser((prev) => ({ ...prev, ...updates }));
-    const stored = JSON.parse(localStorage.getItem('user') || '{}');
-    localStorage.setItem('user', JSON.stringify({ ...stored, ...updates }));
-  };
+  const updateUser = (updates) =>
+    setUser((prev) => (prev ? { ...prev, ...updates } : null));
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, updateUser, checkAuth }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, updateUser }}>
       {children}
     </AuthContext.Provider>
   );

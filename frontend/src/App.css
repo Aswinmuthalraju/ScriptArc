@@ -1,3 +1,14 @@
 .App {
     min-height: 100vh;
 }
+
+/* Reduce motion for accessibility */
+@media (prefers-reduced-motion: reduce) {
+    .page-transition {
+        animation: none;
+    }
+
+    html {
+        scroll-behavior: auto;
+    }
+}
