@@ -4,7 +4,6 @@
 .env.example
 .Environment
 .claude
-frontend/public/course/data-structure/
 
 # IDE and editors
 .idea/
