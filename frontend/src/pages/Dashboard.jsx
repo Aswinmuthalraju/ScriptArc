@@ -25,72 +25,72 @@ const Dashboard = () => {
   const [dashboardData, setDashboardData] = useState(null);
 
   useEffect(() => {
+    const fetchDashboard = async () => {
+      try {
+        const { data: progressList } = await supabase
+          .from('user_progress')
+          .select('course_id, stars_earned, completed_challenge_ids, courses(*)')
+          .eq('user_id', user.id);
+
+        const courseMap = {};
+        (progressList || []).forEach(p => {
+          if (!p.courses) return;
+          const cid = p.course_id;
+          if (!courseMap[cid]) {
+            courseMap[cid] = {
+              ...p.courses,
+              total_stars_earned: 0,
+              completed_challenges: new Set()
+            };
+          }
+          courseMap[cid].total_stars_earned += p.stars_earned || 0;
+          (p.completed_challenge_ids || []).forEach(id => courseMap[cid].completed_challenges.add(id));
+        });
+
+        const enrollments = Object.values(courseMap).map(c => ({
+          ...c,
+          progress: c.total_challenges > 0 ? Math.round((c.completed_challenges.size / c.total_challenges) * 100) : 0,
+          stars_earned: c.total_stars_earned
+        }));
+
+        const { data: submissions } = await supabase
+          .from('submissions')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(5);
+
+        const { data: rankData } = await supabase
+          .from('leaderboard')
+          .select('rank')
+          .eq('id', user.id)
+          .single();
+
+        setDashboardData({
+          courses_in_progress: enrollments || [],
+          recent_completions: (submissions || []).map(s => ({
+            completed_at: s.created_at,
+            stars_awarded: s.stars_awarded || 0,
+          })),
+          rank: rankData?.rank || '-',
+        });
+      } catch (error) {
+        setDashboardData({
+          courses_in_progress: [],
+          recent_completions: [],
+          rank: '-',
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
     if (user) {
       fetchDashboard();
     } else {
       setLoading(false);
     }
   }, [user]);
-
-  const fetchDashboard = async () => {
-    try {
-      const { data: progressList } = await supabase
-        .from('user_progress')
-        .select('course_id, stars_earned, completed_challenge_ids, courses(*)')
-        .eq('user_id', user.id);
-
-      const courseMap = {};
-      (progressList || []).forEach(p => {
-        if (!p.courses) return;
-        const cid = p.course_id;
-        if (!courseMap[cid]) {
-          courseMap[cid] = {
-            ...p.courses,
-            total_stars_earned: 0,
-            completed_challenges: new Set()
-          };
-        }
-        courseMap[cid].total_stars_earned += p.stars_earned || 0;
-        (p.completed_challenge_ids || []).forEach(id => courseMap[cid].completed_challenges.add(id));
-      });
-
-      const enrollments = Object.values(courseMap).map(c => ({
-        ...c,
-        progress: c.total_challenges > 0 ? Math.round((c.completed_challenges.size / c.total_challenges) * 100) : 0,
-        stars_earned: c.total_stars_earned
-      }));
-
-      const { data: submissions } = await supabase
-        .from('submissions')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(5);
-
-      const { data: rankData } = await supabase
-        .from('leaderboard')
-        .select('rank')
-        .eq('id', user.id)
-        .single();
-
-      setDashboardData({
-        courses_in_progress: enrollments || [],
-        recent_completions: (submissions || []).map(s => ({
-          completed_at: s.created_at,
-          stars_awarded: s.stars_awarded || 0,
-        })),
-        rank: rankData?.rank || '-',
-      });
-    } catch (error) {
-      setDashboardData({
-        courses_in_progress: [],
-        recent_completions: [],
-        rank: '-',
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
 
   if (loading) {
     return (
