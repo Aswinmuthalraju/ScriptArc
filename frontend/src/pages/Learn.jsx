@@ -429,6 +429,19 @@ const Learn = () => {
     ? Math.round((completedChallenges.size / challenges.length) * 100)
     : 0;
 
+  const getVideoUrl = () => {
+    if (lesson.video_url) return lesson.video_url;
+    // Fallback to local public folder or Supabase storage bucket
+    const bucketUrl = process.env.REACT_APP_SUPABASE_URL + '/storage/v1/object/public/videos';
+    const filePath = `Course/Data Science/lecture${lesson.order_index}.mp4`;
+    // If we're on localhost, we can use the local public folder
+    if (window.location.hostname === 'localhost') {
+      return `/${filePath}`;
+    }
+    // Otherwise, use the Supabase Storage URL (encoded)
+    return `${bucketUrl}/${encodeURIComponent(filePath)}`;
+  };
+
   return (
     <div className="min-h-screen bg-background pt-16" data-testid="learn-page">
       <div className="flex flex-col lg:flex-row min-h-[calc(100vh-4rem)]">
@@ -452,7 +465,7 @@ const Learn = () => {
               {lesson.video_url || lesson.order_index ? (
                 <video
                   ref={videoRef}
-                  src={`/Course/Data Science/lecture${lesson.order_index}.mp4`}
+                  src={getVideoUrl()}
                   className={`${isFullscreen ? 'h-[calc(100vh-80px)]' : 'h-full'} w-full object-contain cursor-pointer`}
                   onLoadedMetadata={handleLoadedMetadata}
                   onPlay={() => setIsPlaying(true)}
