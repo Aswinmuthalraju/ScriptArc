@@ -32,9 +32,18 @@ const Profile = () => {
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState(user?.name || '');
   const [avatarId, setAvatarId] = useState(user?.avatar_id || null);
-  const [leaderboardVisible, setLeaderboardVisible] = useState(user?.leaderboard_visible ?? true);
+  // Leaderboard is visible if the user is NOT private (default to true/public if undefined)
+  const [leaderboardVisible, setLeaderboardVisible] = useState(!(user?.is_private ?? false));
 
   const handleSave = async () => {
+    if (!name.trim()) {
+      toast.error('Name cannot be empty');
+      return;
+    }
+    if (name.trim().length > 100) {
+      toast.error('Name must be 100 characters or less');
+      return;
+    }
     setSaving(true);
     try {
       const { data, error } = await supabase
@@ -113,14 +122,14 @@ const Profile = () => {
                   Certification Progress
                 </CardTitle>
                 <CardDescription className="text-muted-foreground">
-                  Earn {certificationTarget} stars to become eligible for the ScriptArc Developer Certification.
+                  Earn {certificationTarget} points to become eligible for the ScriptArc Developer Certification.
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="mb-2 flex items-center justify-between text-sm">
                   <span className="text-muted-foreground font-medium">Progress</span>
                   <span className="text-foreground font-mono font-bold">
-                    {currentStars} / {certificationTarget} Stars
+                    {currentStars} / {certificationTarget} Points
                   </span>
                 </div>
                 <Progress value={certProgress} className="h-3 bg-muted/50 mb-4" />
@@ -131,7 +140,7 @@ const Profile = () => {
                   </div>
                 ) : (
                   <p className="text-xs text-muted-foreground">
-                    Keep completing courses to earn stars. {certificationTarget - currentStars} more stars to go.
+                    Keep completing courses to earn points. {certificationTarget - currentStars} more points to go.
                   </p>
                 )}
               </CardContent>

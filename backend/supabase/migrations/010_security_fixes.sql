@@ -57,10 +57,9 @@ CREATE OR REPLACE FUNCTION public.handle_new_user()
   SECURITY DEFINER SET search_path = ''
 AS $$
 BEGIN
-  INSERT INTO public.users (id, email, name)
+  INSERT INTO public.users (id, name)
   VALUES (
     NEW.id,
-    NEW.email,
     COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.email)
   )
   ON CONFLICT (id) DO NOTHING;

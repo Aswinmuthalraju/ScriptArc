@@ -8,6 +8,12 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
+import {
   Play, Clock, Star, Code2, ChevronRight, CheckCircle,
   Lock, Award, Loader2, ArrowLeft, Trophy, GraduationCap, Target
 } from 'lucide-react';
@@ -28,6 +34,7 @@ const CourseSingle = () => {
   const [progress, setProgress] = useState({}); // keyed by lesson_id
   const [loading, setLoading] = useState(true);
   const [showCompletion, setShowCompletion] = useState(false);
+  const [computedMaxPoints, setComputedMaxPoints] = useState(0);
 
   useEffect(() => { fetchCourseData(); }, [id, user]); // eslint-disable-line
 
@@ -43,6 +50,14 @@ const CourseSingle = () => {
         .from('lessons').select('*')
         .eq('course_id', id)
         .order('order_index', { ascending: true });
+
+      // Challenges — compute max points (MCQ=2, Coding=4)
+      const { data: challengeData } = await supabase
+        .from('challenges').select('challenge_type')
+        .eq('course_id', id);
+      const mcqCount = (challengeData || []).filter(c => c.challenge_type === 'mcq').length;
+      const codingCount = (challengeData || []).filter(c => c.challenge_type === 'coding').length;
+      setComputedMaxPoints(mcqCount * 2 + codingCount * 4);
 
       // User progress
       let progressMap = {};
@@ -95,9 +110,10 @@ const CourseSingle = () => {
   const completedChallengesCount = Object.values(progress).reduce((sum, p) => sum + (p.completed_challenge_ids?.length || 0), 0);
 
   const progressPct = course?.total_challenges ? Math.round((completedChallengesCount / course.total_challenges) * 100) : 0;
-  const maxPoints = (course?.total_challenges || 0) * 2;
+  const maxPoints = computedMaxPoints;
   const pointsPct = maxPoints > 0 ? Math.round((totalPoints / maxPoints) * 100) : 0;
-  const courseStars = pointsPct >= 100 ? 5 : pointsPct >= 80 ? 4 : pointsPct >= 60 ? 3 : pointsPct >= 40 ? 2 : pointsPct >= 20 ? 1 : 0;
+  // Stars only for certificate — thresholds per spec
+  const courseStars = pointsPct >= 90 ? 5 : pointsPct >= 75 ? 4 : pointsPct >= 60 ? 3 : pointsPct >= 45 ? 2 : 1;
 
   // ── Loading / Not Found ──────────────────────────────────────
   if (loading) {
@@ -199,66 +215,138 @@ const CourseSingle = () => {
                   Lectures
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2">
-                {lessons.map((lesson) => {
-                  const prog = progress[lesson.id];
-                  const done = prog?.completed;
-                  const locked = isLocked(lesson);
-                  const starsEarned = prog?.stars_earned || 0;
+              <CardContent>
+                <Accordion type="single" collapsible defaultValue="unit-1" className="w-full">
+                  {/* UNIT 1 */}
+                  <AccordionItem value="unit-1" className="border-border">
+                    <AccordionTrigger className="text-lg font-outfit font-semibold hover:no-underline hover:text-primary transition-colors py-4">
+                      Unit 1: Fundamentals
+                    </AccordionTrigger>
+                    <AccordionContent className="space-y-2 pt-2 pb-4">
+                      {lessons.filter(l => l.order_index <= 11).map((lesson) => {
+                        const prog = progress[lesson.id];
+                        const done = prog?.completed;
+                        const locked = isLocked(lesson);
+                        const starsEarned = prog?.stars_earned || 0;
 
-                  return (
-                    <div
-                      key={lesson.id}
-                      onClick={() => startLesson(lesson)}
-                      className={`flex items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-xl border transition-all ${locked
-                        ? 'border-border/40 opacity-60 cursor-not-allowed'
-                        : done
-                          ? 'border-accent/40 bg-accent/5 cursor-pointer hover:bg-accent/8'
-                          : 'border-border cursor-pointer hover:border-primary/50 hover:bg-surface-highlight/50'
-                        }`}
-                      data-testid={`lesson-${lesson.id}`}
-                    >
-                      {/* Status icon */}
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${done ? 'bg-accent/20 text-accent' :
-                        locked ? 'bg-surface-highlight text-text-secondary' :
-                          'bg-primary/20 text-primary'
-                        }`}>
-                        {done ? <CheckCircle className="w-5 h-5" /> :
-                          locked ? <Lock className="w-4 h-4" /> :
-                            <span className="text-sm font-bold font-mono">{lesson.order_index}</span>}
-                      </div>
+                        return (
+                          <div
+                            key={lesson.id}
+                            onClick={() => startLesson(lesson)}
+                            className={`flex items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-xl border transition-all ${locked
+                              ? 'border-border/40 opacity-60 cursor-not-allowed'
+                              : done
+                                ? 'border-accent/40 bg-accent/5 cursor-pointer hover:bg-accent/8'
+                                : 'border-border cursor-pointer hover:border-primary/50 hover:bg-surface-highlight/50'
+                              }`}
+                            data-testid={`lesson-${lesson.id}`}
+                          >
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${done ? 'bg-accent/20 text-accent' :
+                              locked ? 'bg-surface-highlight text-text-secondary' :
+                                'bg-primary/20 text-primary'
+                              }`}>
+                              {done ? <CheckCircle className="w-5 h-5" /> :
+                                locked ? <Lock className="w-4 h-4" /> :
+                                  <span className="text-sm font-bold font-mono">{lesson.order_index}</span>}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm font-medium text-foreground truncate">{lesson.title}</p>
+                                {done && (
+                                  <Badge variant="outline" className="text-xs border-accent/40 text-accent shrink-0">
+                                    ✓ Done
+                                  </Badge>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-3 mt-0.5">
+                                <span className="text-xs text-text-secondary flex items-center gap-1">
+                                  <Clock className="w-3 h-3" />
+                                  {lesson.duration_minutes} min
+                                </span>
+                                {starsEarned > 0 && (
+                                  <span className="text-xs text-primary flex items-center gap-0.5">
+                                    <Code2 className="w-3 h-3" />
+                                    {starsEarned} pts
+                                  </span>
+                                )}
+                                {locked && (
+                                  <span className="text-xs text-text-secondary">Complete previous lecture first</span>
+                                )}
+                              </div>
+                            </div>
+                            <ChevronRight className={`w-4 h-4 shrink-0 ${locked ? 'text-text-secondary/40' : 'text-text-secondary'}`} />
+                          </div>
+                        );
+                      })}
+                    </AccordionContent>
+                  </AccordionItem>
 
-                      {/* Lesson info */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-medium text-foreground truncate">{lesson.title}</p>
-                          {done && (
-                            <Badge variant="outline" className="text-xs border-accent/40 text-accent shrink-0">
-                              ✓ Done
-                            </Badge>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-3 mt-0.5">
-                          <span className="text-xs text-text-secondary flex items-center gap-1">
-                            <Clock className="w-3 h-3" />
-                            {lesson.duration_minutes} min
-                          </span>
-                          {starsEarned > 0 && (
-                            <span className="text-xs text-primary flex items-center gap-0.5">
-                              <Code2 className="w-3 h-3" />
-                              {starsEarned} pts
-                            </span>
-                          )}
-                          {locked && (
-                            <span className="text-xs text-text-secondary">Complete previous lecture first</span>
-                          )}
-                        </div>
-                      </div>
+                  {/* UNIT 2 */}
+                  {lessons.some(l => l.order_index > 11) && (
+                    <AccordionItem value="unit-2" className="border-border border-b-0">
+                      <AccordionTrigger className="text-lg font-outfit font-semibold hover:no-underline hover:text-primary transition-colors py-4">
+                        Unit 2: Advanced Techniques
+                      </AccordionTrigger>
+                      <AccordionContent className="space-y-2 pt-2 pb-4">
+                        {lessons.filter(l => l.order_index > 11).map((lesson) => {
+                          const prog = progress[lesson.id];
+                          const done = prog?.completed;
+                          const locked = isLocked(lesson);
+                          const starsEarned = prog?.stars_earned || 0;
 
-                      <ChevronRight className={`w-4 h-4 shrink-0 ${locked ? 'text-text-secondary/40' : 'text-text-secondary'}`} />
-                    </div>
-                  );
-                })}
+                          return (
+                            <div
+                              key={lesson.id}
+                              onClick={() => startLesson(lesson)}
+                              className={`flex items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-xl border transition-all ${locked
+                                ? 'border-border/40 opacity-60 cursor-not-allowed'
+                                : done
+                                  ? 'border-accent/40 bg-accent/5 cursor-pointer hover:bg-accent/8'
+                                  : 'border-border cursor-pointer hover:border-primary/50 hover:bg-surface-highlight/50'
+                                }`}
+                              data-testid={`lesson-${lesson.id}`}
+                            >
+                              <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${done ? 'bg-accent/20 text-accent' :
+                                locked ? 'bg-surface-highlight text-text-secondary' :
+                                  'bg-primary/20 text-primary'
+                                }`}>
+                                {done ? <CheckCircle className="w-5 h-5" /> :
+                                  locked ? <Lock className="w-4 h-4" /> :
+                                    <span className="text-sm font-bold font-mono">{lesson.order_index - 11}</span>}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <p className="text-sm font-medium text-foreground truncate">{lesson.title}</p>
+                                  {done && (
+                                    <Badge variant="outline" className="text-xs border-accent/40 text-accent shrink-0">
+                                      ✓ Done
+                                    </Badge>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-3 mt-0.5">
+                                  <span className="text-xs text-text-secondary flex items-center gap-1">
+                                    <Clock className="w-3 h-3" />
+                                    {lesson.duration_minutes} min
+                                  </span>
+                                  {starsEarned > 0 && (
+                                    <span className="text-xs text-primary flex items-center gap-0.5">
+                                      <Code2 className="w-3 h-3" />
+                                      {starsEarned} pts
+                                    </span>
+                                  )}
+                                  {locked && (
+                                    <span className="text-xs text-text-secondary">Complete previous lecture first</span>
+                                  )}
+                                </div>
+                              </div>
+                              <ChevronRight className={`w-4 h-4 shrink-0 ${locked ? 'text-text-secondary/40' : 'text-text-secondary'}`} />
+                            </div>
+                          );
+                        })}
+                      </AccordionContent>
+                    </AccordionItem>
+                  )}
+                </Accordion>
               </CardContent>
             </Card>
 

@@ -84,7 +84,7 @@ const Leaderboard = () => {
             Global Leaderboard
           </h1>
           <p className="text-muted-foreground text-lg">
-            Top performers earning points across all courses
+            Top performers ranked by points across all courses
           </p>
         </div>
 

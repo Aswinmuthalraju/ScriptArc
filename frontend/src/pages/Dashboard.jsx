@@ -133,7 +133,7 @@ const Dashboard = () => {
                 </span>
               </div>
               <div className="text-3xl font-outfit font-bold text-foreground mb-3">
-                {currentStars} <span className="text-lg text-muted-foreground font-normal">/ {certificationTarget} Stars</span>
+                {currentStars} <span className="text-lg text-muted-foreground font-normal">/ {certificationTarget} Points</span>
               </div>
               <Progress value={certProgress} className="h-2 bg-muted/60" />
             </CardContent>
@@ -263,7 +263,7 @@ const Dashboard = () => {
                         </div>
                         <div className="flex items-center gap-1.5 bg-primary/10 px-3 py-1 rounded-full border border-primary/20 text-primary">
                           <Target className={`w-3.5 h-3.5`} />
-                          <span className="text-xs font-semibold">+{(completion.stars_awarded || 0) * 2} points</span>
+                          <span className="text-xs font-semibold">+{completion.stars_awarded || 0} pts</span>
                         </div>
                       </div>
                     ))}

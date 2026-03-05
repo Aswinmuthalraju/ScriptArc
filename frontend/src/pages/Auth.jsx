@@ -100,6 +100,7 @@ const Auth = () => {
 
   const handleRoleConfirm = async () => {
     setShowRolePicker(false);
+    localStorage.setItem('pendingRole', selectedRole);
     await initiateGoogleOAuth();
   };
 
@@ -107,7 +108,7 @@ const Auth = () => {
     setGoogleLoading(true);
     try {
       const baseUrl = window.location.origin;
-      const redirectUrl = `${baseUrl}/login`;
+      const redirectUrl = `${baseUrl}/auth/callback`;
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',

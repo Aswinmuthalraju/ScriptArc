@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
@@ -30,6 +30,7 @@ const Learn = () => {
   const { user: authUser } = useAuth();
   const hasSpecialAccess = authUser?.has_special_access === true;
   const videoRef = useRef(null);
+  const completingRef = useRef(false);
 
   // ── Lesson data ─────────────────────────────────────────────
   const [lesson, setLesson] = useState(null);
@@ -46,9 +47,10 @@ const Learn = () => {
   const [isBuffering, setIsBuffering] = useState(false);
   const [videoError, setVideoError] = useState(false);
   const videoContainerRef = useRef(null);
-  const rafRef = useRef(null);
-  const lastUpdateRef = useRef(0);
   const bufferingTimerRef = useRef(null);
+  const lastTimeUpdateRef = useRef(0);
+  const sortedChallengesRef = useRef([]);
+  const completedChallengesRef = useRef(new Set());
 
   // ── Challenge dialog ─────────────────────────────────────────
   const [activeChallenge, setActiveChallenge] = useState(null);
@@ -82,6 +84,31 @@ const Learn = () => {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  // ── Keep refs in sync for use in onTimeUpdate (avoids stale closures) ──
+  useEffect(() => {
+    sortedChallengesRef.current = [...challenges].sort((a, b) => a.timestamp_seconds - b.timestamp_seconds);
+  }, [challenges]);
+  useEffect(() => {
+    completedChallengesRef.current = completedChallenges;
+  }, [completedChallenges]);
+
+  // ── Memoize video URL so it never changes within the same lesson ──
+  const videoUrl = useMemo(() => {
+    if (!lesson) return '';
+    const bucketUrl = process.env.REACT_APP_SUPABASE_URL || 'https://dktkhwzhlsuahokrsxef.supabase.co';
+    const isDSCourse = (lesson.title || '').toLowerCase().includes('data science')
+      || (lesson.course_id === 'd5c1e7a3-9f2b-4e8d-a6c4-3b7f1e9d2a5c');
+    let filePath = '';
+    if (isDSCourse) {
+      const unit = lesson.order_index <= 11 ? 'Unit1' : 'Unit2';
+      const fileIndex = lesson.order_index <= 11 ? lesson.order_index : lesson.order_index - 11;
+      filePath = `videos/Course/Data Science/${unit}/lecture${fileIndex}.mp4`;
+    } else {
+      filePath = `videos/Course/Data Science/lecture${lesson.order_index}.mp4`;
+    }
+    return `${bucketUrl}/storage/v1/object/public/${encodeURI(filePath)}`;
+  }, [lesson]);
 
   // ── Keyboard Shortcuts ───────────────────────────────────────
   useEffect(() => {
@@ -159,6 +186,16 @@ const Learn = () => {
           setCompletedChallenges(new Set(prog.completed_challenge_ids || []));
           setSessionPoints(prog.stars_earned || 0);
           if (prog.completed) setShowComplete(true);
+        } else {
+          // Auto-enroll on first visit so CourseSingle sees progress
+          await supabase.from('user_progress').insert({
+            user_id: user.id,
+            lesson_id: lessonId,
+            course_id: lessonData.course_id,
+            completed: false,
+            stars_earned: 0,
+            completed_challenge_ids: []
+          }).select().maybeSingle();
         }
       }
 
@@ -170,43 +207,31 @@ const Learn = () => {
   };
 
   // ── Video controls ───────────────────────────────────────────
-  // Use requestAnimationFrame to sync visual progress without excessive re-renders
-  const updateProgress = () => {
-    if (videoRef.current) {
-      const now = performance.now();
-      if (now - lastUpdateRef.current > 200) {
-        setCurrentTime(videoRef.current.currentTime);
-        lastUpdateRef.current = now;
-      }
+  // Use native onTimeUpdate instead of RAF — fires ~4x/sec, throttled to ~2x/sec
+  // for state updates. Challenge checks use pre-sorted ref to avoid re-sorting.
+  const handleTimeUpdate = () => {
+    if (!videoRef.current || showChallenge) return;
+    const time = videoRef.current.currentTime;
 
-      // Check for challenge interruptions (skip for special access users)
-      if (!showChallenge && !hasSpecialAccess) {
-        const sorted = [...challenges].sort((a, b) => a.timestamp_seconds - b.timestamp_seconds);
-        // Add a tiny buffer (0.1s) to prevent skipping if frame arrives slightly late
-        for (const ch of sorted) {
-          if (!completedChallenges.has(ch.id) && videoRef.current.currentTime >= ch.timestamp_seconds) {
-            videoRef.current.currentTime = ch.timestamp_seconds;
-            videoRef.current.pause();
-            setIsPlaying(false);
-            openChallenge(ch);
-            return; // stop updates while challenge is open
-          }
+    // Throttle React state updates to ~2/sec for the progress bar
+    const now = performance.now();
+    if (now - lastTimeUpdateRef.current > 500) {
+      setCurrentTime(time);
+      lastTimeUpdateRef.current = now;
+    }
+
+    // Challenge interruption check (uses pre-sorted ref)
+    if (!hasSpecialAccess) {
+      for (const ch of sortedChallengesRef.current) {
+        if (!completedChallengesRef.current.has(ch.id) && time >= ch.timestamp_seconds) {
+          videoRef.current.currentTime = ch.timestamp_seconds;
+          videoRef.current.pause();
+          openChallenge(ch);
+          return;
         }
       }
     }
-    rafRef.current = requestAnimationFrame(updateProgress);
   };
-
-  useEffect(() => {
-    if (isPlaying && !showChallenge) {
-      rafRef.current = requestAnimationFrame(updateProgress);
-    } else if (rafRef.current) {
-      cancelAnimationFrame(rafRef.current);
-    }
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
-  }, [isPlaying, showChallenge, challenges, completedChallenges]); // eslint-disable-line
 
   const togglePlay = () => {
     if (!videoRef.current) return;
@@ -289,13 +314,16 @@ const Learn = () => {
     // Reset coding
     setCode(ch.initial_code || '');
     setCodeResult(null);
-    setSolutionViewed(false);
-    setShowSolution(false);
-    setHintsUsed(0);
-    setCurrentHint(null);
-    setShowHintOption(false);
-    setCodeAttemptCount(0);
     setSubmitting(false);
+    // Only reset solution/hint state when opening a different challenge
+    if (!activeChallenge || activeChallenge.id !== ch.id) {
+      setSolutionViewed(false);
+      setShowSolution(false);
+      setHintsUsed(0);
+      setCurrentHint(null);
+      setShowHintOption(false);
+      setCodeAttemptCount(0);
+    }
   };
 
   const resumeVideo = () => {
@@ -323,16 +351,25 @@ const Learn = () => {
         updated_at: new Date().toISOString(),
       }, { onConflict: 'user_id,lesson_id' });
       if (isComplete) setShowComplete(true);
-    } catch (e) { console.error('saveProgress:', e); }
+    } catch (e) {
+      console.error('saveProgress:', e);
+      toast.error('Progress could not be saved. Please check your connection.');
+    }
   };
 
   const onChallengeComplete = async (pointsEarned) => {
     if (completedChallenges.has(activeChallenge?.id)) return;
-    const newCompleted = new Set([...completedChallenges, activeChallenge.id]);
-    const newPoints = sessionPoints + pointsEarned;
-    setCompletedChallenges(newCompleted);
-    setSessionPoints(newPoints);
-    await saveProgress(newCompleted, newPoints);
+    if (completingRef.current) return;
+    completingRef.current = true;
+    try {
+      const newCompleted = new Set([...completedChallenges, activeChallenge.id]);
+      const newPoints = sessionPoints + pointsEarned;
+      setCompletedChallenges(newCompleted);
+      setSessionPoints(newPoints);
+      await saveProgress(newCompleted, newPoints);
+    } finally {
+      completingRef.current = false;
+    }
   };
 
   // ── MCQ handlers ─────────────────────────────────────────────
@@ -344,7 +381,9 @@ const Learn = () => {
 
     if (selectedOption === activeChallenge.correct_option) {
       setMcqResult('correct');
-      // Save submission
+      // Save submission — MCQ: 2 pts (no hint), 1 pt (hint shown), 0 pts (solution)
+      const mcqHintUsed = newAttempts > 2 && (activeChallenge.hints?.length > 0);
+      const mcqPoints = mcqHintUsed ? 1 : 2;
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
@@ -352,12 +391,12 @@ const Learn = () => {
             user_id: user.id,
             challenge_id: activeChallenge.id,
             attempts: newAttempts,
-            hint_used: newAttempts > 2,
-            stars_awarded: 2,
+            hint_used: mcqHintUsed,
+            stars_awarded: mcqPoints,
           });
         }
       } catch { /* non-critical */ }
-      await onChallengeComplete(2);
+      await onChallengeComplete(mcqPoints);
     } else {
       setMcqResult('wrong');
       setSelectedOption(null);
@@ -366,7 +405,8 @@ const Learn = () => {
   };
 
   // ── Coding handlers ──────────────────────────────────────────
-  const getMarksPreview = () => solutionViewed ? 0 : hintsUsed > 0 ? 1 : 2;
+  // Coding: 4 pts (independent), 2 pts (hint), 0 pts (solution viewed)
+  const getMarksPreview = () => solutionViewed ? 0 : hintsUsed > 0 ? 2 : 4;
 
   const saveCodeSubmission = async (marksEarned) => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -385,7 +425,7 @@ const Learn = () => {
   const viewSolution = () => {
     if (!solutionViewed) {
       setSolutionViewed(true);
-      toast.warning('Solution viewed — points reduced to 0.');
+      toast.warning('Solution viewed — 0 points.');
     }
     setShowSolution(prev => !prev);
   };
@@ -396,7 +436,7 @@ const Learn = () => {
     if (newCount <= hints.length) {
       setCurrentHint(hints[newCount - 1]);
       setHintsUsed(newCount);
-      toast.info('Hint unlocked! Points reduced to 1.');
+      toast.info('Hint unlocked! Points reduced to 2.');
     } else {
       toast.info('No more hints available.');
     }
@@ -405,7 +445,7 @@ const Learn = () => {
   // ── Shared: call code execution via Supabase Edge Function ───
   // Data science courses route to the Python Runner (NumPy, Pandas, etc.)
   const isDataScienceCourse = (lesson?.title || '').toLowerCase().includes('data science')
-    || (lesson?.course_id === '00000000-0000-0000-0000-000000000001'); // DS course ID
+    || (lesson?.course_id === 'd5c1e7a3-9f2b-4e8d-a6c4-3b7f1e9d2a5c'); // DS course ID
 
   const executeCode = async (sourceCode, languageId) => {
     const { data, error } = await supabase.functions.invoke('execute-code', {
@@ -458,7 +498,7 @@ const Learn = () => {
 
       // Judge0 status IDs: 3 = Accepted, others = various failures
       const hasError = !!(result.stderr?.trim() || result.compile_output?.trim());
-      const passed = result.status_id === 3 && !hasError && !!result.stdout?.trim();
+      const passed = result.status_id === 3 && !hasError;
       const errorText = (result.compile_output || result.stderr || '').trim();
 
       if (passed) {
@@ -472,7 +512,7 @@ const Learn = () => {
           time: result.time,
           status: result.status,
         });
-        toast.success(marks === 2 ? '⚡ +2 Points earned!' : marks === 1 ? '✅ +1 Point earned.' : 'Solution viewed: 0 Points.');
+        toast.success(marks === 4 ? '⚡ +4 Points earned!' : marks === 2 ? '✅ +2 Points earned.' : 'Solution viewed: 0 Points.');
         await onChallengeComplete(marks);
       } else {
         setCodeResult({
@@ -516,13 +556,6 @@ const Learn = () => {
     ? Math.round((completedChallenges.size / challenges.length) * 100)
     : 0;
 
-  const getVideoUrl = () => {
-    // Always use Supabase Storage directly for optimized preloading
-    const bucketUrl = import.meta.env.VITE_SUPABASE_URL || 'https://dktkhwzhlsuahokrsxef.supabase.co';
-    const filePath = `videos/Course/Data Science/lecture${lesson.order_index}.mp4`;
-    return `${bucketUrl}/storage/v1/object/public/${encodeURI(filePath)}`;
-  };
-
   return (
     <div className="min-h-screen bg-background pt-16" data-testid="learn-page">
       <div className="flex flex-col lg:flex-row min-h-[calc(100vh-4rem)]">
@@ -546,16 +579,23 @@ const Learn = () => {
               {lesson.video_url || lesson.order_index ? (
                 <video
                   ref={videoRef}
-                  src={getVideoUrl()}
-                  preload="auto"
+                  src={videoUrl}
+                  preload="metadata"
                   playsInline
                   className={`${isFullscreen ? 'h-[calc(100vh-80px)]' : 'h-full'} w-full object-contain cursor-pointer`}
                   onLoadedMetadata={handleLoadedMetadata}
+                  onTimeUpdate={handleTimeUpdate}
                   onPlay={() => setIsPlaying(true)}
-                  onPause={() => setIsPlaying(false)}
+                  onPause={() => {
+                    setIsPlaying(false);
+                    if (videoRef.current) setCurrentTime(videoRef.current.currentTime);
+                  }}
+                  onSeeked={() => {
+                    if (videoRef.current) setCurrentTime(videoRef.current.currentTime);
+                  }}
                   onWaiting={() => {
                     clearTimeout(bufferingTimerRef.current);
-                    bufferingTimerRef.current = setTimeout(() => setIsBuffering(true), 800);
+                    bufferingTimerRef.current = setTimeout(() => setIsBuffering(true), 1500);
                   }}
                   onPlaying={() => {
                     clearTimeout(bufferingTimerRef.current);
@@ -721,7 +761,7 @@ const Learn = () => {
                           {done && (
                             <span className="text-xs text-primary flex items-center gap-0.5">
                               <Target className="w-3 h-3" />
-                              +2 pts
+                              +{isMCQ ? 2 : 4} pts
                             </span>
                           )}
                         </div>
@@ -773,7 +813,7 @@ const Learn = () => {
                   MCQ Challenge
                 </Badge>
                 <Badge variant="outline" className="text-xs border-primary/40 text-primary">
-                  🎯 {activeChallenge?.star_value === 2 ? 'Up to 4 points' : '2 points'}
+                  🎯 Up to 2 points
                 </Badge>
               </div>
               <DialogTitle className="text-foreground font-outfit text-xl">{activeChallenge?.title}</DialogTitle>
@@ -835,12 +875,15 @@ const Learn = () => {
                 )}
 
                 {/* Result feedback */}
-                {mcqResult === 'correct' && (
-                  <div className="flex items-center gap-2 p-3 bg-accent/10 border border-accent/30 rounded-xl text-accent">
-                    <CheckCircle className="w-4 h-4" />
-                    <span className="text-sm font-medium">✅ Correct! +2 Points Earned</span>
-                  </div>
-                )}
+                {mcqResult === 'correct' && (() => {
+                  const earnedPts = (mcqAttempts > 2 && activeChallenge.hints?.length > 0) ? 1 : 2;
+                  return (
+                    <div className="flex items-center gap-2 p-3 bg-accent/10 border border-accent/30 rounded-xl text-accent">
+                      <CheckCircle className="w-4 h-4" />
+                      <span className="text-sm font-medium">✅ Correct! +{earnedPts} {earnedPts === 1 ? 'Point' : 'Points'} Earned</span>
+                    </div>
+                  );
+                })()}
                 {mcqResult === 'wrong' && (
                   <div className="flex items-center gap-2 p-3 bg-destructive/10 border border-destructive/30 rounded-xl text-destructive">
                     <XCircle className="w-4 h-4" />
@@ -885,7 +928,7 @@ const Learn = () => {
                     </Badge>
                     <Badge variant="outline" className="text-xs border-primary/40 text-primary bg-primary/10">
                       <Target className="w-3 h-3 mr-1 text-accent" />
-                      {activeChallenge?.star_value === 2 ? 'Up to 4 points' : '2 points'}
+                      Up to 4 points
                     </Badge>
                   </div>
                   <button onClick={resumeVideo} className="p-2 text-text-secondary hover:text-white transition-colors rounded-md hover:bg-white/10" data-testid="close-challenge-btn">
@@ -911,15 +954,15 @@ const Learn = () => {
                             <span className="text-sm text-text-secondary">Potential points:</span>
                             <div className="flex items-center gap-3">
                               <div className="flex gap-1.5">
-                                {[1, 2].map(pip => (
+                                {[1, 2, 3, 4].map(pip => (
                                   <div key={pip} className={`w-7 h-7 rounded border flex items-center justify-center text-sm font-mono font-bold ${getMarksPreview() >= pip ? 'bg-primary/20 border-primary text-primary' : 'bg-surface border-border text-text-secondary'
                                     }`}>{pip}</div>
                                 ))}
                               </div>
                               <span className="text-base font-mono font-bold text-white">{getMarksPreview()} pts</span>
-                              {getMarksPreview() === 2
+                              {getMarksPreview() === 4
                                 ? <Zap className="w-4 h-4 text-primary" />
-                                : getMarksPreview() === 1
+                                : getMarksPreview() > 0
                                   ? <span className="text-xs text-warning">(reduced)</span>
                                   : <span className="text-xs text-destructive">(no points)</span>}
                             </div>
@@ -956,7 +999,7 @@ const Learn = () => {
                                 <div className="flex items-center gap-2">
                                   <Code2 className="w-4 h-4 text-secondary" />
                                   <span className="text-sm text-secondary">
-                                    {solutionViewed ? 'Solution viewed (0 points)' : 'Warning: Viewing solution results in 0 points'}
+                                    {solutionViewed ? 'Solution viewed (0 points)' : 'Warning: Viewing solution reduces to 0 points'}
                                   </span>
                                 </div>
                                 <Button size="sm" variant="outline" onClick={viewSolution}

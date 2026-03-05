@@ -21,11 +21,12 @@ const AuthCallback = () => {
                 }
 
                 if (data?.session) {
-                    // If a session exists, the AuthContext will pick it up and handle extended user fetching.
-                    // Wait briefly for context to stabilize then navigate.
-                    setTimeout(() => {
-                        if (mounted) navigate('/dashboard', { replace: true });
-                    }, 1000);
+                    const pendingRole = localStorage.getItem('pendingRole');
+                    if (pendingRole) {
+                        localStorage.removeItem('pendingRole');
+                        await supabase.auth.updateUser({ data: { role: pendingRole } });
+                    }
+                    if (mounted) navigate('/dashboard', { replace: true });
                 } else {
                     // Fallback if no session was established
                     if (mounted) navigate('/login', { replace: true });
