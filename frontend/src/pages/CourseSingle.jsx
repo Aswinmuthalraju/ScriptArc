@@ -217,7 +217,7 @@ const CourseSingle = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <Accordion type="single" collapsible defaultValue="unit-1" className="w-full">
+                <Accordion type="single" collapsible className="w-full">
                   {/* UNIT 1 */}
                   <AccordionItem value="unit-1" className="border-border">
                     <AccordionTrigger className="text-lg font-outfit font-semibold hover:no-underline hover:text-primary transition-colors py-4">
