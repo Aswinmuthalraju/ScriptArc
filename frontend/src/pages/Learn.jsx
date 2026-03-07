@@ -1,23 +1,21 @@
-import { useState, useEffect, useRef, useMemo, useCallback, Suspense, lazy } from 'react';
+import { useState, useEffect, useRef, useMemo, Suspense, lazy } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Slider } from '@/components/ui/slider';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 const Editor = lazy(() => import('@monaco-editor/react'));
 import {
-  Play, Pause, Volume2, VolumeX, ChevronRight, Star, Lightbulb,
+  Play, Lightbulb,
   CheckCircle, XCircle, Loader2, ArrowLeft, Code2, AlertTriangle,
-  Trophy, ArrowRight, Lock, Target, Maximize, Minimize, Zap, X,
-  RotateCcw, RotateCw, Settings, PictureInPicture
+  Trophy, ArrowRight, Lock, Target, Zap, X
 } from 'lucide-react';
-import { RoundSpinner } from '@/components/ui/spinner';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
-import useHlsPlayer from '@/hooks/useHlsPlayer';
+import { BUNNY_STREAM_VIDEOS } from '@/lib/bunnyVideos';
+import playerjs from 'player.js';
 
 const LANGUAGE_MAP = {
   71: { name: 'Python', monaco: 'python' },
@@ -32,7 +30,7 @@ const Learn = () => {
   const navigate = useNavigate();
   const { user: authUser } = useAuth();
   const hasSpecialAccess = authUser?.has_special_access === true;
-  const videoRef = useRef(null);
+  const iframeRef = useRef(null);
   const completingRef = useRef(false);
 
   // ── Lesson data ─────────────────────────────────────────────
@@ -41,33 +39,23 @@ const Learn = () => {
   const [nextLesson, setNextLesson] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // ── Video state ──────────────────────────────────────────────
+  // ── Video state (managed via Bunny player.js postMessages) ───
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [isBuffering, setIsBuffering] = useState(false);
-  const [videoError, setVideoError] = useState(false);
-  const [volume, setVolume] = useState(1);
-  const [playbackRate, setPlaybackRate] = useState(1);
-  const [showControls, setShowControls] = useState(true);
-  const [isDraggingSeek, setIsDraggingSeek] = useState(false);
-  const [previewTime, setPreviewTime] = useState(null);
-  const [bufferedRanges, setBufferedRanges] = useState([]);
-  const [showSpeedMenu, setShowSpeedMenu] = useState(false);
-  const [mobileDoubleTapIndicator, setMobileDoubleTapIndicator] = useState(null);
 
-  const videoContainerRef = useRef(null);
-  const bufferingTimerRef = useRef(null);
-  const controlsTimeoutRef = useRef(null);
-  const lastTimeUpdateRef = useRef(0);
   const sortedChallengesRef = useRef([]);
   const completedChallengesRef = useRef(new Set());
-  const keydownHandlerRef = useRef(null);
-  // Refs for double-tap detection (avoids cross-tab interference via window globals)
-  const lastTapTimeLeftRef = useRef(0);
-  const lastTapTimeRightRef = useRef(0);
+  const lastTimeRef = useRef(0);
+
+  // ── Player lock state ────────────────────────────────────────
+  // isPlayerLocked: drives the overlay that blocks native Bunny controls
+  // lockedAtRef:    the exact timestamp we snapped to; enforced on every tick
+  const [isPlayerLocked, setIsPlayerLocked] = useState(false);
+  const lockedAtRef = useRef(null);
+
+  // ── Bunny Stream IDs ─────────────────────────────────────────
+  const BUNNY_LIBRARY_ID = '612832';
 
   // ── Challenge dialog ─────────────────────────────────────────
   const [activeChallenge, setActiveChallenge] = useState(null);
@@ -102,7 +90,7 @@ const Learn = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // ── Keep refs in sync for use in onTimeUpdate (avoids stale closures) ──
+  // ── Keep refs in sync (avoids stale closures) ──
   useEffect(() => {
     sortedChallengesRef.current = [...challenges].sort((a, b) => a.timestamp_seconds - b.timestamp_seconds);
   }, [challenges]);
@@ -110,70 +98,14 @@ const Learn = () => {
     completedChallengesRef.current = completedChallenges;
   }, [completedChallenges]);
 
-  // ── Memoize video URL — prefer HLS (.m3u8) playlist, fallback to MP4 ──
-  const videoUrl = useMemo(() => {
-    if (!lesson) return '';
-    const b2BaseUrl = process.env.REACT_APP_B2_URL || 'https://f003.backblazeb2.com/file/ScripArc';
-    const isDSCourse = (lesson.title || '').toLowerCase().includes('data science')
-      || (lesson.course_id === 'd5c1e7a3-9f2b-4e8d-a6c4-3b7f1e9d2a5c');
-    let basePath = '';
-    if (isDSCourse) {
-      const unit = lesson.order_index <= 11 ? 'Unit1' : 'Unit2';
-      const fileIndex = lesson.order_index <= 11 ? lesson.order_index : lesson.order_index - 11;
-      basePath = `Course/Data Science/${unit}/lecture${fileIndex}`;
-    } else {
-      basePath = `Course/Data Science/lecture${lesson.order_index}`;
-    }
-    const base = b2BaseUrl;
-    // Prefer HLS playlist if one exists; the hook probes and falls back to MP4
-    const hlsUrl = `${base}/${encodeURI(basePath)}/playlist.m3u8`;
-    const mp4Url = `${base}/${encodeURI(basePath)}.mp4`;
-    return { hlsUrl, mp4Url };
+  // ── Bunny video ID for current lesson ────────────────────────
+  const bunnyVideoId = useMemo(() => {
+    if (!lesson) return null;
+    return BUNNY_STREAM_VIDEOS[lesson.order_index] || null;
   }, [lesson]);
 
-  // ── Attach HLS.js adaptive streaming (tries HLS, falls back to MP4 internally) ──
-  useHlsPlayer(videoRef, videoUrl);
-
-  // ── Keyboard Shortcuts ───────────────────────────────────────
-  // Store handler in a ref so the listener doesn't need to be re-attached on every
-  // dependency change, avoiding stale-closure bugs.
   useEffect(() => {
-    keydownHandlerRef.current = (e) => {
-      if (showChallenge || showComplete) return;
-      const tag = document.activeElement.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-      if (!videoRef.current) return;
-      switch (e.code) {
-        case 'Space':
-          e.preventDefault();
-          togglePlay();
-          handleUserActivity();
-          break;
-        case 'ArrowLeft':
-          e.preventDefault();
-          skipVideo(-10);
-          break;
-        case 'ArrowRight':
-          e.preventDefault();
-          skipVideo(10);
-          break;
-        default: break;
-      }
-    };
-  }, [showChallenge, showComplete]); // eslint-disable-line
-
-  useEffect(() => {
-    const handler = (e) => keydownHandlerRef.current?.(e);
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, []);
-
-  useEffect(() => {
-    setVideoError(false);
-    setIsBuffering(false);
-    clearTimeout(bufferingTimerRef.current);
     fetchLessonData();
-    return () => clearTimeout(bufferingTimerRef.current);
   }, [lessonId]); // eslint-disable-line
 
   const fetchLessonData = async () => {
@@ -227,256 +159,98 @@ const Learn = () => {
     finally { setLoading(false); }
   };
 
-  // ── Video controls ───────────────────────────────────────────
-  // Use native onTimeUpdate instead of RAF — fires ~4x/sec, throttled to ~2x/sec
-  // for state updates. Challenge checks use pre-sorted ref to avoid re-sorting.
-  const handleTimeUpdate = () => {
-    if (!videoRef.current || showChallenge) return;
-    const time = videoRef.current.currentTime;
+  // ── Bunny Stream playerjs bridge ──────────────────────────────
+  // The playerjs library performs the required handshake with Bunny's iframe
+  // (sends an init ping, waits for ready) so events actually arrive.
+  const playerInstanceRef = useRef(null);
 
-    // Throttle React state updates to ~2/sec for the progress bar
-    const now = performance.now();
-    if (!isDraggingSeek && now - lastTimeUpdateRef.current > 500) {
-      setCurrentTime(time);
-      lastTimeUpdateRef.current = now;
-    }
+  useEffect(() => {
+    if (!bunnyVideoId || !iframeRef.current) return;
 
-    // Challenge interruption check (uses pre-sorted ref)
-    if (!hasSpecialAccess) {
-      for (const ch of sortedChallengesRef.current) {
-        if (!completedChallengesRef.current.has(ch.id) && time >= ch.timestamp_seconds) {
-          videoRef.current.currentTime = ch.timestamp_seconds;
-          videoRef.current.pause();
-          openChallenge(ch);
-          return;
+    const player = new playerjs.Player(iframeRef.current);
+    playerInstanceRef.current = player;
+
+    // Guard so stale callbacks from a previous effect run are no-ops
+    let active = true;
+
+    player.on('ready', () => {
+      if (!active) return;
+
+      player.on('play', () => { if (active) setIsPlaying(true); });
+      player.on('pause', () => { if (active) setIsPlaying(false); });
+      player.on('ended', () => {
+        if (active) {
+          setIsPlaying(false);
+          // Only show completion when the video actually finishes AND challenges are done
+          const total = sortedChallengesRef.current.length;
+          const done = completedChallengesRef.current.size;
+          if (total === 0 || done >= total) {
+            setShowComplete(true);
+          }
         }
-      }
-    }
-  };
+      });
 
-  const togglePlay = () => {
-    if (!videoRef.current) return;
-    if (isPlaying) videoRef.current.pause(); else videoRef.current.play();
-    setIsPlaying(!isPlaying);
-  };
+      player.on('timeupdate', (data) => {
+        if (!active) return;
 
-  const toggleMute = () => {
-    if (!videoRef.current) return;
-    videoRef.current.muted = !isMuted;
-    setIsMuted(!isMuted);
-  };
+        const time = typeof data === 'object' ? data.seconds : data;
+        const dur = typeof data === 'object' ? data.duration : null;
+        if (typeof time !== 'number' || isNaN(time)) return;
 
-  const toggleFullscreen = async () => {
-    if (!videoContainerRef.current) return;
-    try {
-      if (!document.fullscreenElement) {
-        await videoContainerRef.current.requestFullscreen();
-        // State is set by the fullscreenchange listener below, not here,
-        // to avoid divergence if requestFullscreen() is denied.
-      } else {
-        await document.exitFullscreen();
-      }
-    } catch (err) {
-      console.error('Fullscreen toggle failed:', err);
-    }
-  };
+        setCurrentTime(time);
+        if (dur) setDuration(dur);
 
-  useEffect(() => {
-    const handleFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
-  }, []);
+        if (!hasSpecialAccess) {
+          // ── Enforce lock: snap back and pause on every tick while locked ──
+          if (lockedAtRef.current !== null) {
+            if (time > lockedAtRef.current + 1) {
+              player.setCurrentTime(lockedAtRef.current);
+              player.pause();
+            }
+            return;
+          }
 
-  const handleLoadedMetadata = () => {
-    if (videoRef.current) setDuration(videoRef.current.duration);
-  };
+          // ── Detect challenge timestamp and engage the lock ──
+          const nextChallenge = sortedChallengesRef.current.find(
+            ch => !completedChallengesRef.current.has(ch.id)
+          );
+          if (nextChallenge && time >= nextChallenge.timestamp_seconds) {
+            lockedAtRef.current = nextChallenge.timestamp_seconds;
+            setIsPlayerLocked(true);
+            player.setCurrentTime(nextChallenge.timestamp_seconds);
+            player.pause();
+            openChallenge(nextChallenge);
+          }
+        }
+      });
+    });
 
-  // ── Smart Video Controls ─────────────────────────────────────
-  const handleUserActivity = () => {
-    setShowControls(true);
-    if (!isPlaying) return;
-    clearTimeout(controlsTimeoutRef.current);
-    controlsTimeoutRef.current = setTimeout(() => {
-      // Only hide if a menu or input isn't focused
-      if (document.activeElement.tagName !== 'INPUT') {
-        setShowControls(false);
-        setShowSpeedMenu(false);
-      }
-    }, 3000);
-  };
+    return () => {
+      active = false;
+      playerInstanceRef.current = null;
+    };
+  }, [bunnyVideoId, hasSpecialAccess]); // eslint-disable-line
 
-  useEffect(() => {
-    if (!isPlaying) {
-      setShowControls(true);
-      clearTimeout(controlsTimeoutRef.current);
-    } else {
-      handleUserActivity();
-    }
-  }, [isPlaying]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Update buffered ranges on the native progress event (fires when browser buffers data)
-  const handleBufferProgress = useCallback(() => {
-    if (!videoRef.current) return;
-    const buf = videoRef.current.buffered;
-    const ranges = [];
-    for (let i = 0; i < buf.length; i++) {
-      ranges.push({ start: buf.start(i), end: buf.end(i) });
-    }
-    setBufferedRanges(ranges);
-  }, []);
-
-  const handleVolumeChange = (newVolumeArr) => {
-    const vol = newVolumeArr[0];
-    setVolume(vol);
-    if (videoRef.current) {
-      videoRef.current.volume = vol;
-      if (vol === 0) {
-        setIsMuted(true);
-        videoRef.current.muted = true;
-      } else if (isMuted) {
-        setIsMuted(false);
-        videoRef.current.muted = false;
-      }
-    }
-    handleUserActivity();
-  };
-
-  const handleSpeedChange = (speed) => {
-    setPlaybackRate(speed);
-    if (videoRef.current) videoRef.current.playbackRate = speed;
-    setShowSpeedMenu(false);
-    handleUserActivity();
-  };
-
-  const skipVideo = (seconds) => {
-    if (!videoRef.current) return;
-    const nextTime = videoRef.current.currentTime + seconds;
-    const maxTime = getMaxSeekTime();
-
-    if (nextTime > maxTime) {
-      videoRef.current.currentTime = maxTime;
-      const blocker = challenges.find(ch => !completedChallenges.has(ch.id) && ch.timestamp_seconds === maxTime);
-      if (blocker) {
-        videoRef.current.pause();
-        setIsPlaying(false);
-        openChallenge(blocker);
-      }
-    } else {
-      videoRef.current.currentTime = Math.max(0, nextTime);
-    }
-    handleUserActivity();
-  };
-
-  const togglePiP = async () => {
-    if (!document.pictureInPictureEnabled || !videoRef.current) return;
-    try {
-      if (document.pictureInPictureElement) {
-        await document.exitPictureInPicture();
-      } else {
-        await videoRef.current.requestPictureInPicture();
-      }
-    } catch (error) {
-      console.error('PiP failed', error);
-    }
-    handleUserActivity();
-  };
-
-  const handleDoubleTapLeft = () => {
-    const now = performance.now();
-    if (now - lastTapTimeLeftRef.current < 400) {
-      setMobileDoubleTapIndicator('left');
-      skipVideo(-10);
-      setTimeout(() => setMobileDoubleTapIndicator(null), 500);
-      lastTapTimeLeftRef.current = 0;
-    } else {
-      lastTapTimeLeftRef.current = now;
-      handleUserActivity();
-      if (!isMobile) togglePlay();
-    }
-  };
-
-  const handleDoubleTapRight = () => {
-    const now = performance.now();
-    if (now - lastTapTimeRightRef.current < 400) {
-      setMobileDoubleTapIndicator('right');
-      skipVideo(10);
-      setTimeout(() => setMobileDoubleTapIndicator(null), 500);
-      lastTapTimeRightRef.current = 0;
-    } else {
-      lastTapTimeRightRef.current = now;
-      handleUserActivity();
-      if (!isMobile) togglePlay();
-    }
-  };
-
-  // ── Locked seek: can't skip past uncompleted challenges ────
   const getMaxSeekTime = () => {
-    if (hasSpecialAccess) return duration; // special access → unrestricted seek
+    if (hasSpecialAccess) return duration || 9999;
     const sorted = [...challenges].sort((a, b) => a.timestamp_seconds - b.timestamp_seconds);
     for (const ch of sorted) {
       if (!completedChallenges.has(ch.id)) return ch.timestamp_seconds;
     }
-    return duration; // all done → full seek
+    return duration || 9999;
   };
-
-  const handleSeekPointerMove = useCallback((e) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const targetTime = pos * duration;
-    setPreviewTime(targetTime);
-
-    if (isDraggingSeek) {
-      const maxTime = getMaxSeekTime();
-      setCurrentTime(targetTime > maxTime ? maxTime : targetTime);
-    }
-  }, [duration, isDraggingSeek]); // eslint-disable-line
-
-  const handleSeekPointerDown = useCallback((e) => {
-    setIsDraggingSeek(true);
-    handleSeekPointerMove(e);
-  }, [handleSeekPointerMove]);
-
-  const handleSeekPointerUp = useCallback((e) => {
-    setPreviewTime(null);
-    if (!isDraggingSeek || !videoRef.current) return;
-    setIsDraggingSeek(false);
-
-    const rect = e.currentTarget.getBoundingClientRect();
-    const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    let targetTime = pos * duration;
-
-    const maxTime = getMaxSeekTime();
-    if (targetTime > maxTime) {
-      targetTime = maxTime;
-      const blocker = challenges.find(ch => !completedChallenges.has(ch.id) && ch.timestamp_seconds === maxTime);
-      if (blocker) {
-        videoRef.current.currentTime = targetTime;
-        videoRef.current.pause();
-        setIsPlaying(false);
-        openChallenge(blocker);
-        return;
-      }
-    }
-    videoRef.current.currentTime = targetTime;
-    setCurrentTime(targetTime);
-    handleUserActivity();
-  }, [isDraggingSeek, duration, challenges, completedChallenges]); // eslint-disable-line
-
-  const handleSeekMouseLeave = useCallback(() => {
-    setPreviewTime(null);
-    if (isDraggingSeek) {
-      setIsDraggingSeek(false);
-      // Revert UI to the actual video position (avoids stale React state)
-      if (videoRef.current) setCurrentTime(videoRef.current.currentTime);
-      handleUserActivity();
-    }
-  }, [isDraggingSeek]); // eslint-disable-line
 
   const formatTime = (s) =>
     `${Math.floor(s / 60)}:${Math.floor(s % 60).toString().padStart(2, '0')}`;
 
   // ── Challenge open / close ───────────────────────────────────
   const openChallenge = (ch) => {
+    // If the browser is in fullscreen (like when watching the iframe in fullscreen),
+    // exit it so the React challenge dialog is visible above the iframe.
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => { });
+    }
+
     setActiveChallenge(ch);
     setShowChallenge(true);
     // Reset MCQ
@@ -500,11 +274,19 @@ const Learn = () => {
 
   const resumeVideo = () => {
     setShowChallenge(false);
-    setActiveChallenge(null);
-    if (videoRef.current && !showComplete) {
-      videoRef.current.play();
-      setIsPlaying(true);
-    }
+    // Clear the lock so timeupdate stops enforcing position
+    lockedAtRef.current = null;
+    setIsPlayerLocked(false);
+
+    // Briefly wait for React state to process closing before commanding play,
+    // to prevent immediate re-triggering of the challenge lock.
+    setTimeout(() => {
+      setActiveChallenge(null);
+      if (!showComplete) {
+        playerInstanceRef.current?.play();
+        setIsPlaying(true);
+      }
+    }, 100);
   };
 
   // ── Progress save ────────────────────────────────────────────
@@ -522,7 +304,7 @@ const Learn = () => {
         completed_challenge_ids: Array.from(newCompleted),
         updated_at: new Date().toISOString(),
       }, { onConflict: 'user_id,lesson_id' });
-      if (isComplete) setShowComplete(true);
+      // We no longer trigger setShowComplete here; we wait for the video to reach the very end.
     } catch (e) {
       console.error('saveProgress:', e);
       toast.error('Progress could not be saved. Please check your connection.');
@@ -813,60 +595,30 @@ except Exception as e:
             </button>
           </div>
 
-          {/* Video Player */}
+          {/* Video Player — Bunny Stream */}
           <div className="flex-1 flex flex-col">
-            <div
-              ref={videoContainerRef}
-              className={`relative bg-black flex flex-col justify-center overflow-hidden ${isFullscreen ? 'h-screen w-screen fixed inset-0 z-50' : 'aspect-video'}`}
-              onMouseMove={handleUserActivity}
-              onKeyDown={handleUserActivity}
-              tabIndex="0"
-            >
-              {lesson.video_url || lesson.order_index ? (
-                <video
-                  ref={videoRef}
-                  /* src is set by useHlsPlayer hook (HLS or MP4) — do NOT set src here */
-                  preload="auto"
-                  playsInline
-                  controlsList="nodownload"
-                  onContextMenu={(e) => e.preventDefault()}
-                  className={`${isFullscreen ? 'h-[calc(100vh-80px)]' : 'h-full'} w-full object-contain cursor-pointer`}
-                  onLoadedMetadata={handleLoadedMetadata}
-                  onTimeUpdate={handleTimeUpdate}
-                  onPlay={() => setIsPlaying(true)}
-                  onPause={() => {
-                    setIsPlaying(false);
-                    if (videoRef.current) setCurrentTime(videoRef.current.currentTime);
-                  }}
-                  onSeeked={() => {
-                    if (videoRef.current) setCurrentTime(videoRef.current.currentTime);
-                  }}
-                  onWaiting={() => {
-                    clearTimeout(bufferingTimerRef.current);
-                    bufferingTimerRef.current = setTimeout(() => setIsBuffering(true), 2500);
-                  }}
-                  onStalled={() => {
-                    // Network stalled — show buffering spinner persistently
-                    clearTimeout(bufferingTimerRef.current);
-                    bufferingTimerRef.current = setTimeout(() => setIsBuffering(true), 2500);
-                  }}
-                  onPlaying={() => {
-                    clearTimeout(bufferingTimerRef.current);
-                    setIsBuffering(false);
-                    setIsPlaying(true);
-                  }}
-                  onCanPlay={() => {
-                    clearTimeout(bufferingTimerRef.current);
-                    setIsBuffering(false);
-                  }}
-                  onProgress={handleBufferProgress}
-                  onError={() => {
-                    clearTimeout(bufferingTimerRef.current);
-                    setIsBuffering(false);
-                    setVideoError(true);
-                  }}
-                  data-testid="video-player"
-                />
+            <div className="relative bg-black overflow-hidden aspect-video">
+              {bunnyVideoId ? (
+                <>
+                  <iframe
+                    ref={iframeRef}
+                    src={`https://iframe.mediadelivery.net/embed/${BUNNY_LIBRARY_ID}/${bunnyVideoId}?autoplay=false&preload=true&loop=false&muted=false`}
+                    loading="lazy"
+                    className="absolute inset-0 w-full h-full border-0"
+                    allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;"
+                    allowFullScreen={true}
+                    data-testid="bunny-stream-player"
+                  />
+                  {/* Strict lock overlay: blocks all interaction with the video player when a challenge is active */}
+                  {showChallenge && (
+                    <div className="absolute inset-0 z-50 bg-black/50 backdrop-blur-[2px] cursor-not-allowed flex items-center justify-center pointer-events-auto">
+                      <div className="bg-black/80 px-4 py-2 rounded-lg border border-white/20 flex items-center gap-2">
+                        <Lock className="w-4 h-4 text-warning" />
+                        <span className="text-white text-sm font-medium">Complete the challenge to continue</span>
+                      </div>
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-surface">
                   <div className="text-center">
@@ -877,201 +629,49 @@ except Exception as e:
                 </div>
               )}
 
-              {isBuffering && !videoError && (
-                <div className="absolute inset-0 z-40 flex items-center justify-center pointer-events-none bg-emerald-900/20 backdrop-blur-sm">
-                  <div className="bg-emerald-950/80 p-5 rounded-full backdrop-blur-md shadow-2xl border border-emerald-500/30">
-                    <RoundSpinner size="xl" color="green" />
-                  </div>
-                </div>
-              )}
-
-              {videoError && (
-                <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-                  <div className="text-center space-y-4">
-                    <XCircle className="w-12 h-12 text-destructive mx-auto" />
-                    <p className="text-white font-medium">Video failed to load</p>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="border-white/20 text-white hover:bg-white/10"
-                      onClick={() => {
-                        setVideoError(false);
-                        setIsBuffering(false);
-                        if (videoRef.current) videoRef.current.load();
-                      }}
-                    >
-                      Retry
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {/* Mobile Double Tap Zones */}
-              {lesson.video_url || lesson.order_index ? (
-                <>
-                  <div className="absolute inset-y-0 left-0 w-[40%] z-10 cursor-pointer" onClick={handleDoubleTapLeft} />
-                  <div className="absolute inset-y-0 right-0 w-[40%] z-10 cursor-pointer" onClick={handleDoubleTapRight} />
-                  <div className="absolute inset-0 left-[40%] right-[40%] z-10 cursor-pointer" onClick={() => { handleUserActivity(); togglePlay(); }} />
-
-                  {/* Double tap indicators */}
-                  {mobileDoubleTapIndicator === 'left' && (
-                    <div className="absolute left-10 sm:left-20 top-1/2 -translate-y-1/2 z-20 flex flex-col items-center justify-center animate-pulse bg-black/50 rounded-full p-4 sm:p-6 backdrop-blur-sm pointer-events-none">
-                      <div className="flex gap-1 mb-1">
-                        <ChevronRight className="w-5 h-5 text-white rotate-180 -mr-3 animate-[pulse_1s_ease-in-out_infinite]" />
-                        <ChevronRight className="w-5 h-5 text-white rotate-180 -mr-3 animate-[pulse_1s_ease-in-out_infinite_100ms]" />
-                        <ChevronRight className="w-5 h-5 text-white rotate-180 animate-[pulse_1s_ease-in-out_infinite_200ms]" />
-                      </div>
-                      <span className="text-white font-bold text-sm sm:text-base">-10s</span>
-                    </div>
-                  )}
-                  {mobileDoubleTapIndicator === 'right' && (
-                    <div className="absolute right-10 sm:right-20 top-1/2 -translate-y-1/2 z-20 flex flex-col items-center justify-center animate-pulse bg-black/50 rounded-full p-4 sm:p-6 backdrop-blur-sm pointer-events-none">
-                      <div className="flex gap-1 mb-1">
-                        <ChevronRight className="w-5 h-5 text-white -mr-3 animate-[pulse_1s_ease-in-out_infinite]" />
-                        <ChevronRight className="w-5 h-5 text-white -mr-3 animate-[pulse_1s_ease-in-out_infinite_100ms]" />
-                        <ChevronRight className="w-5 h-5 text-white animate-[pulse_1s_ease-in-out_infinite_200ms]" />
-                      </div>
-                      <span className="text-white font-bold text-sm sm:text-base">+10s</span>
-                    </div>
-                  )}
-                </>
-              ) : null}
-
-              {/* Video Controls overlay */}
-              <div
-                className={`transition-opacity duration-300 z-20 ${showControls || !isPlaying || isDraggingSeek || showSpeedMenu ? 'opacity-100' : 'opacity-0'} ${isFullscreen ? 'absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/95 via-black/70 to-transparent px-6 pb-6 pt-16' : 'absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent p-4 pt-12'}`}
-                onMouseEnter={handleUserActivity}
-                onMouseLeave={() => { if (isPlaying) setShowControls(false); }}
-              >
-                {/* Seek Bar */}
+              {/* Lock overlay — sits above the Bunny iframe and blocks all native
+                  player controls (seek bar, play button, etc.) when a challenge is
+                  active. Uses pointer-events to intercept clicks without hiding video. */}
+              {isPlayerLocked && !hasSpecialAccess && (
                 <div
-                  className="relative h-1.5 sm:h-2 bg-white/20 rounded-full cursor-pointer mb-3 group"
-                  onPointerDown={handleSeekPointerDown}
-                  onPointerMove={handleSeekPointerMove}
-                  onPointerUp={handleSeekPointerUp}
-                  onMouseLeave={handleSeekMouseLeave}
-                  data-testid="video-progress"
+                  className="absolute inset-0 z-10 bg-black/50 flex items-center justify-center cursor-not-allowed"
+                  data-testid="player-lock-overlay"
                 >
-                  {/* Buffered Progress */}
-                  {bufferedRanges.map((range, idx) => (
-                    <div
-                      key={idx}
-                      className="absolute top-0 h-full bg-white/30 rounded-full pointer-events-none"
-                      style={{
-                        left: `${(range.start / (duration || 1)) * 100}%`,
-                        width: `${((range.end - range.start) / (duration || 1)) * 100}%`
-                      }}
-                    />
-                  ))}
-
-                  {/* Active Progress */}
-                  <div
-                    className="absolute top-0 left-0 h-full bg-primary rounded-full pointer-events-none"
-                    style={{ width: `${(Math.min(getMaxSeekTime() || duration, isDraggingSeek && previewTime !== null ? previewTime : currentTime) / (duration || 1)) * 100}%` }}
-                  >
-                    {/* Playhead */}
-                    <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-3.5 h-3.5 sm:w-4 sm:h-4 bg-primary rounded-full shadow-[0_0_10px_rgba(37,99,235,0.8)] opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <div className="flex items-center gap-2 bg-black/70 border border-warning/40 px-4 py-2 rounded-md">
+                    <Lock className="w-4 h-4 text-warning" />
+                    <span className="text-sm font-medium text-warning">Complete the challenge to continue</span>
                   </div>
+                </div>
+              )}
+            </div>
 
-                  {/* Challenge markers */}
-                  {challenges.map((ch) => (
+            {/* Points and Challenge Progress display */}
+            <div className="px-4 py-3 bg-surface border-t border-border flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <Target className="w-4 h-4 text-primary" />
+                  <span className="text-sm font-semibold text-foreground">{sessionPoints} pts</span>
+                </div>
+                {isPlaying && (
+                  <span className="text-xs text-accent font-medium">▶ Playing</span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 mt-1">
+                <span className="text-xs text-text-secondary font-medium mr-2">Challenges:</span>
+                {challenges.map((ch, i) => {
+                  const done = completedChallenges.has(ch.id);
+                  return (
                     <div
                       key={ch.id}
-                      className="absolute top-1/2 w-3 h-3 -translate-x-1/2 -translate-y-1/2 pointer-events-none"
-                      style={{ left: `${(ch.timestamp_seconds / (duration || 1)) * 100}%` }}
+                      className={`flex items-center justify-center w-6 h-6 rounded-full border ${done ? 'bg-accent/20 border-accent/40 text-accent' : 'bg-surface-highlight border-border text-text-secondary'
+                        }`}
+                      title={`${ch.title} (@${formatTime(ch.timestamp_seconds)})`}
                     >
-                      <div className={`w-2.5 h-2.5 sm:w-3 sm:h-3 rotate-45 shadow-[0_0_8px_rgba(0,0,0,0.5)] ${completedChallenges.has(ch.id) ? 'bg-accent' : 'bg-primary'}`}
-                        title={ch.title} />
+                      {done ? <CheckCircle className="w-3.5 h-3.5" /> : <span className="text-[10px] font-mono font-bold">{i + 1}</span>}
                     </div>
-                  ))}
-
-                  {/* Hover tooltip */}
-                  {previewTime !== null && (
-                    <div
-                      className="absolute bottom-full mb-2 -translate-x-1/2 px-2 py-1 bg-black/90 text-white font-mono text-xs rounded border border-white/20 whitespace-nowrap pointer-events-none shadow-lg"
-                      style={{ left: `${(previewTime / (duration || 1)) * 100}%` }}
-                    >
-                      {formatTime(previewTime)}
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1 sm:gap-3">
-                    <button onClick={togglePlay} className="p-2 hover:bg-white/20 rounded-full transition-colors text-white" data-testid="play-pause-btn">
-                      {isPlaying ? <Pause className="w-5 h-5 sm:w-6 sm:h-6 fill-white" /> : <Play className="w-5 h-5 sm:w-6 sm:h-6 fill-white ml-0.5" />}
-                    </button>
-
-                    <button onClick={() => skipVideo(-10)} className="hidden sm:block p-2 hover:bg-white/20 rounded-full transition-colors text-white" title="Rewind 10s">
-                      <RotateCcw className="w-4 h-4 sm:w-5 sm:h-5" />
-                    </button>
-                    <button onClick={() => skipVideo(10)} className="hidden sm:block p-2 hover:bg-white/20 rounded-full transition-colors text-white" title="Forward 10s">
-                      <RotateCw className="w-4 h-4 sm:w-5 sm:h-5" />
-                    </button>
-
-                    <div className="flex items-center gap-1 ml-1 group relative">
-                      <button onClick={toggleMute} className="p-2 hover:bg-white/20 rounded-full transition-colors text-white">
-                        {isMuted || volume === 0 ? <VolumeX className="w-4 h-4 sm:w-5 sm:h-5" /> : <Volume2 className="w-4 h-4 sm:w-5 sm:h-5" />}
-                      </button>
-                      <div className="w-0 overflow-hidden group-hover:w-20 transition-all duration-300 ease-in-out opacity-0 group-hover:opacity-100 flex items-center">
-                        <input
-                          type="range"
-                          min="0" max="1" step="0.05"
-                          value={isMuted ? 0 : volume}
-                          onChange={(e) => handleVolumeChange([parseFloat(e.target.value)])}
-                          onPointerDown={(e) => e.stopPropagation()}
-                          className="w-16 h-1 bg-white/30 rounded-lg appearance-none cursor-pointer"
-                        />
-                      </div>
-                    </div>
-
-                    <span className="text-xs sm:text-sm text-white/90 font-mono ml-2 font-medium">
-                      {formatTime(currentTime)} <span className="text-white/50 mx-1">/</span> {formatTime(duration)}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-1 sm:gap-2">
-                    <div className="flex items-center gap-1.5 sm:gap-2 mr-1 sm:mr-2 bg-white/10 px-2.5 py-1 rounded-lg border border-white/10">
-                      <Target className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-primary" />
-                      <span className="text-xs sm:text-sm font-semibold text-white">{sessionPoints}</span>
-                      <span className="hidden sm:inline text-xs text-white/70">pts</span>
-                    </div>
-
-                    <div className="relative">
-                      <button
-                        onClick={() => setShowSpeedMenu(!showSpeedMenu)}
-                        className="p-2 hover:bg-white/20 rounded-lg transition-colors text-white flex items-center gap-1"
-                        title="Playback Speed"
-                      >
-                        <Settings className="w-4 h-4 sm:w-5 sm:h-5" />
-                        <span className="hidden sm:inline text-xs font-semibold">{playbackRate}x</span>
-                      </button>
-                      {showSpeedMenu && (
-                        <div className="absolute bottom-full mb-3 right-0 bg-[#161b22]/95 backdrop-blur-md border border-white/10 rounded-xl overflow-hidden shadow-2xl z-50 flex flex-col w-32 py-1">
-                          {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map(speed => (
-                            <button
-                              key={speed}
-                              onClick={() => handleSpeedChange(speed)}
-                              className={`px-4 py-2 text-sm text-left hover:bg-white/10 transition-colors ${playbackRate === speed ? 'text-primary font-bold bg-primary/10' : 'text-white/80'}`}
-                            >
-                              {speed === 1 ? 'Normal' : `${speed}x`}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {document.pictureInPictureEnabled && (
-                      <button onClick={togglePiP} className="hidden sm:block p-2 hover:bg-white/20 rounded-lg transition-colors text-white">
-                        <PictureInPicture className="w-4 h-4 sm:w-5 sm:h-5" />
-                      </button>
-                    )}
-
-                    <button onClick={toggleFullscreen} className="p-2 hover:bg-white/20 rounded-lg transition-colors text-white">
-                      {isFullscreen ? <Minimize className="w-4 h-4 sm:w-5 sm:h-5" /> : <Maximize className="w-4 h-4 sm:w-5 sm:h-5" />}
-                    </button>
-                  </div>
-                </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -1162,13 +762,11 @@ except Exception as e:
       ═══════════════════════════════════════════════════════════ */}
       <Dialog open={showChallenge} onOpenChange={() => { }}>
         <DialogContent
-          portalContainer={videoContainerRef.current}
           aria-describedby={activeChallenge?.challenge_type === 'coding' ? 'coding-challenge-desc' : undefined}
           className={
             activeChallenge?.challenge_type === 'coding'
               ? 'w-screen h-screen max-w-none max-h-none rounded-none border-0 bg-[#0f111a] p-0 flex flex-col'
-              : `${isFullscreen ? 'w-screen h-screen max-w-none max-h-none rounded-none border-0' : 'w-[95vw] sm:max-w-2xl max-h-[92vh]'
-              } overflow-hidden bg-surface border-border p-0 flex flex-col`
+              : 'w-[95vw] sm:max-w-2xl max-h-[92vh] overflow-hidden bg-surface border-border p-0 flex flex-col'
           }
         >
           {/* Accessible title/description for coding challenges (visually hidden) */}
@@ -1203,7 +801,7 @@ except Exception as e:
 
             {/* ── MCQ content ── */}
             {activeChallenge?.challenge_type === 'mcq' && (
-              <div className={`flex flex-col h-full ${isFullscreen ? 'max-w-4xl mx-auto w-full justify-center' : ''}`}>
+              <div className="flex flex-col h-full">
                 {/* Options */}
                 <div className="space-y-3 flex-1 flex flex-col justify-center">
                   {(activeChallenge.options || []).map((opt, i) => {
@@ -1307,7 +905,21 @@ except Exception as e:
                       Up to 4 points
                     </Badge>
                   </div>
-                  <button onClick={resumeVideo} className="p-2 text-text-secondary hover:text-white transition-colors rounded-md hover:bg-white/10" data-testid="close-challenge-btn">
+                  <button
+                    onClick={() => {
+                      const canClose = !isPlayerLocked || completedChallenges.has(activeChallenge?.id) || hasSpecialAccess;
+                      if (canClose) {
+                        resumeVideo();
+                      } else {
+                        toast.error('Complete the challenge to continue!');
+                      }
+                    }}
+                    className={`p-2 transition-colors rounded-md ${isPlayerLocked && !completedChallenges.has(activeChallenge?.id) && !hasSpecialAccess
+                      ? 'text-text-secondary/30 cursor-not-allowed'
+                      : 'text-text-secondary hover:text-white hover:bg-white/10'
+                      }`}
+                    data-testid="close-challenge-btn"
+                  >
                     <X className="w-5 h-5" />
                   </button>
                 </div>
