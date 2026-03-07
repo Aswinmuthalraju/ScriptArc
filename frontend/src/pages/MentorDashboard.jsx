@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import * as XLSX from 'xlsx';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
@@ -14,7 +15,8 @@ import {
   Users, LayoutDashboard, MessageSquare, Zap, BarChart2,
   FileDown, Loader2, Search, CheckCircle, XCircle, AlertTriangle,
   Target, TrendingUp, TrendingDown, Lightbulb, RotateCcw,
-  AlertOctagon, ClipboardList, Send, User,
+  AlertOctagon, ClipboardList, Send, User, BookOpen, CheckSquare,
+  Square, AlertCircle, Clock,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
@@ -22,48 +24,54 @@ import {
 
 // ── constants ─────────────────────────────────────────────────
 const SECTIONS = [
-  { id: 'overview',      label: 'Overview',      icon: LayoutDashboard },
-  { id: 'students',      label: 'Students',       icon: Users },
-  { id: 'analytics',     label: 'Analytics',      icon: BarChart2 },
-  { id: 'messages',      label: 'Messages',       icon: MessageSquare },
-  { id: 'interventions', label: 'Interventions',  icon: Zap },
-  { id: 'reports',       label: 'Reports',        icon: FileDown },
+  { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+  { id: 'courses', label: 'My Courses', icon: BookOpen },
+  { id: 'students', label: 'Students', icon: Users },
+  { id: 'insights', label: 'Insights', icon: Lightbulb },
+  { id: 'messages', label: 'Messages', icon: MessageSquare },
+  { id: 'interventions', label: 'Interventions', icon: Zap },
+  { id: 'reports', label: 'Reports', icon: FileDown },
 ];
 
 const ACTION_TYPES = [
-  { value: 'hint_unlock',       label: 'Unlock Hint',        icon: Lightbulb },
-  { value: 'retry_allow',       label: 'Allow Retry',        icon: RotateCcw },
-  { value: 'warning',           label: 'Issue Warning',      icon: AlertOctagon },
-  { value: 'revision_assigned', label: 'Assign Revision',    icon: ClipboardList },
+  { value: 'hint_unlock', label: 'Unlock Hint', icon: Lightbulb },
+  { value: 'retry_allow', label: 'Allow Retry', icon: RotateCcw },
+  { value: 'warning', label: 'Issue Warning', icon: AlertOctagon },
+  { value: 'revision_assigned', label: 'Assign Revision', icon: ClipboardList },
 ];
 
 const MSG_TYPES = [
-  { value: 'feedback',       label: 'Feedback' },
-  { value: 'clarification',  label: 'Clarification' },
-  { value: 'revision',       label: 'Revision' },
-  { value: 'motivation',     label: 'Motivation' },
-  { value: 'warning',        label: 'Warning' },
+  { value: 'feedback', label: 'Feedback' },
+  { value: 'clarification', label: 'Clarification' },
+  { value: 'revision', label: 'Revision' },
+  { value: 'motivation', label: 'Motivation' },
+  { value: 'warning', label: 'Warning' },
 ];
 
 // ── helpers ───────────────────────────────────────────────────
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString() : '—';
-const fmtDateTime = (d) => d ? new Date(d).toLocaleString() : '—';
+const fmtRelative = (d) => {
+  if (!d) return 'Never';
+  const days = Math.floor((Date.now() - new Date(d).getTime()) / 86400000);
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  return `${days}d ago`;
+};
 
-// Classify student: top = success ≥ 70% AND hint rate ≤ 30%; struggling = otherwise with ≥ 3 submissions
 const classify = (student) => {
   const { total, passed, hinted } = student.submissionStats || {};
   if (!total || total < 3) return 'new';
   const successRate = passed / total;
-  const hintRate    = hinted / total;
+  const hintRate = hinted / total;
   if (successRate >= 0.7 && hintRate <= 0.3) return 'top';
-  if (successRate < 0.5 || hintRate > 0.5)   return 'struggling';
+  if (successRate < 0.5 || hintRate > 0.5) return 'struggling';
   return 'average';
 };
 
 const ClassBadge = ({ cat }) => {
-  if (cat === 'top')        return <Badge className="text-xs bg-accent/20 text-accent border-accent/40">Top Performer</Badge>;
+  if (cat === 'top') return <Badge className="text-xs bg-accent/20 text-accent border-accent/40">Top Performer</Badge>;
   if (cat === 'struggling') return <Badge className="text-xs bg-destructive/20 text-destructive border-destructive/40">Needs Help</Badge>;
-  if (cat === 'new')        return <Badge className="text-xs bg-primary/20 text-primary border-primary/40">New</Badge>;
+  if (cat === 'new') return <Badge className="text-xs bg-primary/20 text-primary border-primary/40">New</Badge>;
   return <Badge className="text-xs bg-surface-highlight text-text-secondary border-border">Average</Badge>;
 };
 
@@ -74,15 +82,19 @@ const MentorDashboard = () => {
   const [loading, setLoading] = useState(false);
 
   // Data
-  const [students, setStudents] = useState([]);       // enriched list
+  const [students, setStudents] = useState([]);
+  const [allCourses, setAllCourses] = useState([]);
+  const [mentorCourseIds, setMentorCourseIds] = useState(new Set());
   const [messages, setMessages] = useState([]);
   const [interventions, setInterventions] = useState([]);
 
   // UI
-  const [searchTerm, setSearchTerm]     = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [courseFilter, setCourseFilter] = useState('all');
+  const [savingCourses, setSavingCourses] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
-  const [studentDetail, setStudentDetail]     = useState(null);
-  const [detailLoading, setDetailLoading]     = useState(false);
+  const [studentDetail, setStudentDetail] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   // Message form
   const [msgForm, setMsgForm] = useState({ student_id: '', subject: '', message: '', message_type: 'feedback' });
@@ -92,12 +104,11 @@ const MentorDashboard = () => {
   const [intForm, setIntForm] = useState({ student_id: '', action_type: 'hint_unlock', description: '' });
   const [intLoading, setIntLoading] = useState(false);
 
-  // ── fetch students ──────────────────────────────────────────
+  // ── fetch students (per-assignment so same student appears per course) ──
   const fetchStudents = useCallback(async () => {
     if (!user?.id) return;
     setLoading(true);
     try {
-      // 1. Get assignment rows
       const { data: assignments } = await supabase
         .from('mentor_students')
         .select('id, student_id, course_id, assigned_at')
@@ -106,60 +117,61 @@ const MentorDashboard = () => {
       if (!assignments?.length) { setStudents([]); setLoading(false); return; }
 
       const studentIds = [...new Set(assignments.map(a => a.student_id))];
+      const courseIds = [...new Set(assignments.filter(a => a.course_id).map(a => a.course_id))];
 
-      // 2. Get user profiles
-      const { data: profiles } = await supabase
-        .from('users')
-        .select('id, name, email, total_stars, level, created_at')
-        .in('id', studentIds);
+      // Fetch in parallel
+      const [profilesRes, progressRes, subsRes, coursesRes] = await Promise.all([
+        supabase.from('users').select('id, name, total_stars, level, created_at').in('id', studentIds),
+        supabase.from('user_progress').select('user_id, completed, stars_earned, completed_challenge_ids').in('user_id', studentIds),
+        supabase.from('submissions').select('user_id, stars_awarded, hint_used, solution_viewed, created_at')
+          .in('user_id', studentIds).order('created_at', { ascending: false }).limit(500),
+        courseIds.length
+          ? supabase.from('courses').select('id, title, total_challenges').in('id', courseIds)
+          : { data: [] },
+      ]);
 
-      // 3. Get progress
-      const { data: progress } = await supabase
-        .from('user_progress')
-        .select('user_id, completed, stars_earned, completed_challenge_ids')
-        .in('user_id', studentIds);
+      const profileMap = {};
+      (profilesRes.data || []).forEach(p => { profileMap[p.id] = p; });
 
-      // 4. Get submissions (for success/hint stats) — capped at 500 per mentor's cohort
-      const { data: subs } = await supabase
-        .from('submissions')
-        .select('user_id, stars_awarded, hint_used, solution_viewed, created_at')
-        .in('user_id', studentIds)
-        .order('created_at', { ascending: false })
-        .limit(500);
-
-      // 5. Merge
-      const profileMap  = {};
-      (profiles  || []).forEach(p => { profileMap[p.id]  = p; });
       const progressMap = {};
-      (progress  || []).forEach(p => {
+      (progressRes.data || []).forEach(p => {
         if (!progressMap[p.user_id]) progressMap[p.user_id] = [];
         progressMap[p.user_id].push(p);
       });
+
       const subsMap = {};
-      (subs || []).forEach(s => {
+      (subsRes.data || []).forEach(s => {
         if (!subsMap[s.user_id]) subsMap[s.user_id] = [];
         subsMap[s.user_id].push(s);
       });
 
-      const enriched = studentIds.map(sid => {
-        const p    = profileMap[sid] || {};
+      const courseMapObj = {};
+      (coursesRes.data || []).forEach(c => { courseMapObj[c.id] = c; });
+
+      // One entry per assignment — same student can appear multiple times (different courses)
+      const enriched = assignments.map(assignment => {
+        const sid = assignment.student_id;
+        const p = profileMap[sid] || {};
         const prog = progressMap[sid] || [];
-        const ss   = subsMap[sid] || [];
+        const ss = subsMap[sid] || [];
 
-        const completedLessons = prog.filter(p => p.completed).length;
-        const totalChallenges  = prog.reduce((acc, p) => acc + (p.completed_challenge_ids?.length || 0), 0);
-
-        const passed  = ss.filter(s => s.stars_awarded > 0).length;
-        const hinted  = ss.filter(s => s.hint_used).length;
+        const completedLessons = prog.filter(r => r.completed).length;
+        const totalChallenges = prog.reduce((acc, r) => acc + (r.completed_challenge_ids?.length || 0), 0);
+        const passed = ss.filter(s => s.stars_awarded > 0).length;
+        const hinted = ss.filter(s => s.hint_used).length;
         const solutionViewed = ss.filter(s => s.solution_viewed).length;
-
         const lastActivity = ss.length
           ? ss.reduce((a, b) => (a.created_at > b.created_at ? a : b)).created_at
           : null;
 
         return {
           ...p,
-          assignment: assignments.find(a => a.student_id === sid),
+          assignmentKey: assignment.id,   // unique React key
+          assignment: {
+            ...assignment,
+            courseName: assignment.course_id ? (courseMapObj[assignment.course_id]?.title || 'Unknown Course') : 'No Course',
+            total_challenges: assignment.course_id ? (courseMapObj[assignment.course_id]?.total_challenges || 0) : 0,
+          },
           completedLessons,
           totalChallenges,
           submissionStats: { total: ss.length, passed, hinted, solutionViewed },
@@ -173,7 +185,41 @@ const MentorDashboard = () => {
     }
   }, [user?.id]);
 
-  // ── fetch student detail ────────────────────────────────────
+  // ── fetch all courses (for mentor course selection) ──────────
+  const fetchAllCourses = useCallback(async () => {
+    const { data } = await supabase.from('courses').select('id, title, level').order('title');
+    setAllCourses(data || []);
+  }, []);
+
+  // ── fetch mentor's currently selected courses ────────────────
+  const fetchMentorCourses = useCallback(async () => {
+    if (!user?.id) return;
+    const { data } = await supabase.from('mentor_courses').select('course_id').eq('mentor_id', user.id);
+    setMentorCourseIds(new Set((data || []).map(r => r.course_id)));
+  }, [user?.id]);
+
+  // ── save mentor course selections ────────────────────────────
+  const saveMentorCourses = async () => {
+    setSavingCourses(true);
+    try {
+      // Delete all existing, then insert selected ones
+      const { error: delErr } = await supabase.from('mentor_courses').delete().eq('mentor_id', user.id);
+      if (delErr) throw delErr;
+
+      if (mentorCourseIds.size > 0) {
+        const inserts = [...mentorCourseIds].map(course_id => ({ mentor_id: user.id, course_id }));
+        const { error: insErr } = await supabase.from('mentor_courses').insert(inserts);
+        if (insErr) throw insErr;
+      }
+      toast.success(`Saved — you are mentoring ${mentorCourseIds.size} course(s).`);
+    } catch (e) {
+      toast.error(e.message || 'Failed to save courses.');
+    } finally {
+      setSavingCourses(false);
+    }
+  };
+
+  // ── fetch student detail ─────────────────────────────────────
   const fetchStudentDetail = useCallback(async (studentId) => {
     setDetailLoading(true);
     try {
@@ -194,30 +240,29 @@ const MentorDashboard = () => {
           .order('created_at', { ascending: false }),
       ]);
       setStudentDetail({
-        progress:  progRes.data  || [],
-        subs:      subsRes.data  || [],
-        messages:  msgsRes.data  || [],
+        progress: progRes.data || [],
+        subs: subsRes.data || [],
+        messages: msgsRes.data || [],
       });
     } finally {
       setDetailLoading(false);
     }
   }, [user?.id]);
 
-  // ── fetch messages ──────────────────────────────────────────
+  // ── fetch messages ───────────────────────────────────────────
   const fetchMessages = useCallback(async () => {
     setLoading(true);
     try {
       const { data } = await supabase
         .from('mentor_messages')
-        .select('id, student_id, subject, message, message_type, read, created_at')
+        .select('id, student_id, subject, message, message_type, read, created_at, from_student')
         .eq('mentor_id', user.id)
         .order('created_at', { ascending: false });
 
       const studentIds = [...new Set((data || []).map(m => m.student_id))];
       let nameMap = {};
       if (studentIds.length) {
-        const { data: users } = await supabase
-          .from('users').select('id, name').in('id', studentIds);
+        const { data: users } = await supabase.from('users').select('id, name').in('id', studentIds);
         (users || []).forEach(u => { nameMap[u.id] = u.name; });
       }
       setMessages((data || []).map(m => ({ ...m, studentName: nameMap[m.student_id] || 'Unknown' })));
@@ -226,7 +271,13 @@ const MentorDashboard = () => {
     }
   }, [user?.id]);
 
-  // ── fetch interventions ─────────────────────────────────────
+  // ── mark student reply as read ───────────────────────────────
+  const markStudentMsgRead = async (msgId) => {
+    const { error } = await supabase.from('mentor_messages').update({ read: true }).eq('id', msgId);
+    if (!error) setMessages(prev => prev.map(m => m.id === msgId ? { ...m, read: true } : m));
+  };
+
+  // ── fetch interventions ──────────────────────────────────────
   const fetchInterventions = useCallback(async () => {
     setLoading(true);
     try {
@@ -239,8 +290,7 @@ const MentorDashboard = () => {
       const studentIds = [...new Set((data || []).map(i => i.student_id))];
       let nameMap = {};
       if (studentIds.length) {
-        const { data: users } = await supabase
-          .from('users').select('id, name').in('id', studentIds);
+        const { data: users } = await supabase.from('users').select('id, name').in('id', studentIds);
         (users || []).forEach(u => { nameMap[u.id] = u.name; });
       }
       setInterventions((data || []).map(i => ({ ...i, studentName: nameMap[i.student_id] || 'Unknown' })));
@@ -249,16 +299,15 @@ const MentorDashboard = () => {
     }
   }, [user?.id]);
 
-  // ── trigger fetches on section change ──────────────────────
+  // ── trigger fetches on section change ───────────────────────
   useEffect(() => {
-    if (section === 'overview' || section === 'students' || section === 'analytics' || section === 'reports') {
-      fetchStudents();
-    }
+    if (['overview', 'students', 'insights', 'reports'].includes(section)) fetchStudents();
+    if (section === 'courses') { fetchAllCourses(); fetchMentorCourses(); }
     if (section === 'messages') { fetchStudents(); fetchMessages(); }
     if (section === 'interventions') { fetchStudents(); fetchInterventions(); }
   }, [section]); // eslint-disable-line
 
-  // ── send message ────────────────────────────────────────────
+  // ── send message ─────────────────────────────────────────────
   const sendMessage = async () => {
     if (!msgForm.student_id || !msgForm.message.trim()) {
       toast.error('Select a student and enter a message');
@@ -267,11 +316,12 @@ const MentorDashboard = () => {
     setMsgLoading(true);
     try {
       const { error } = await supabase.from('mentor_messages').insert({
-        mentor_id:    user.id,
-        student_id:   msgForm.student_id,
-        subject:      msgForm.subject.trim() || null,
-        message:      msgForm.message.trim(),
+        mentor_id: user.id,
+        student_id: msgForm.student_id,
+        subject: msgForm.subject.trim() || null,
+        message: msgForm.message.trim(),
         message_type: msgForm.message_type,
+        from_student: false,
       });
       if (error) throw error;
       toast.success('Message sent!');
@@ -284,17 +334,14 @@ const MentorDashboard = () => {
     }
   };
 
-  // ── log intervention ────────────────────────────────────────
+  // ── log intervention ─────────────────────────────────────────
   const logIntervention = async () => {
-    if (!intForm.student_id) {
-      toast.error('Select a student');
-      return;
-    }
+    if (!intForm.student_id) { toast.error('Select a student'); return; }
     setIntLoading(true);
     try {
       const { error } = await supabase.from('mentor_interventions').insert({
-        mentor_id:   user.id,
-        student_id:  intForm.student_id,
+        mentor_id: user.id,
+        student_id: intForm.student_id,
         action_type: intForm.action_type,
         description: intForm.description.trim() || null,
       });
@@ -309,47 +356,205 @@ const MentorDashboard = () => {
     }
   };
 
-  // ── CSV report download ─────────────────────────────────────
-  const downloadReport = () => {
-    const headers = ['Name','Email','Total Points','Level','Completed Lessons','Challenges Done','Submissions','Pass Rate','Hint Rate'];
-    const rows = students.map(s => {
-      const ss   = s.submissionStats;
-      const pass = ss.total ? Math.round((ss.passed / ss.total) * 100) : 0;
-      const hint = ss.total ? Math.round((ss.hinted / ss.total) * 100) : 0;
-      return [s.name, s.email, s.total_stars, s.level, s.completedLessons, s.totalChallenges, ss.total, `${pass}%`, `${hint}%`];
-    });
-    const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href = url; a.download = `mentor_report_${Date.now()}.csv`; a.click();
-    URL.revokeObjectURL(url);
-    toast.success('Report downloaded.');
+  // ── remove student from mentor ───────────────────────────────
+  const removeStudent = async (studentId) => {
+    if (!studentId) return;
+    if (!window.confirm("Are you sure you want to remove this student from your mentorship?")) return;
+    setIntLoading(true);
+    try {
+      const { error } = await supabase
+        .from('mentor_students')
+        .delete()
+        .eq('mentor_id', user.id)
+        .eq('student_id', studentId);
+
+      if (error) throw error;
+      toast.success("Student removed successfully.");
+
+      setIntForm({ ...intForm, student_id: '' });
+      fetchStudents();
+    } catch (e) {
+      toast.error(e.message || "Failed to remove student.");
+    } finally {
+      setIntLoading(false);
+    }
   };
 
-  // ── derived data — memoized so they don't recompute on every render ─
-  const analyticsData = useMemo(() => students.map(s => ({
+  // ── Excel report download ────────────────────────────────────
+  const downloadReport = () => {
+    const headers = [
+      'Student Name', 'Email', 'Course', 'Progress %', 'Challenges Completed', 'Score', 'Last Active'
+    ];
+
+    const rows = students.map(s => {
+      const tc = s.assignment?.total_challenges || 1;
+      const cc = s.totalChallenges || 0;
+      const progress = `${Math.min(100, Math.round((cc / Math.max(tc, 1)) * 100))}%`;
+
+      return [
+        s.name || 'Student',
+        '—', // Email not stored in public.users
+        s.assignment?.courseName || '—',
+        progress,
+        `${cc} / ${tc}`,
+        `${s.total_stars || 0} pts`,
+        s.lastActivity ? new Date(s.lastActivity).toLocaleDateString() : '—',
+      ];
+    });
+
+    const wsData = [headers, ...rows];
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    ws['!cols'] = [
+      { wch: 20 }, // Student Name
+      { wch: 25 }, // Email
+      { wch: 20 }, // Course
+      { wch: 12 }, // Progress %
+      { wch: 22 }, // Challenges Completed
+      { wch: 10 }, // Score
+      { wch: 14 }, // Last Active
+    ];
+
+    // Attempt to add styling to header row (basic XLSX supports limited styles without the Pro version)
+    // To conform exactly to prompt we would use exceljs, but SheetJS basic styling might just bold if supported.
+    for (let c = 0; c < headers.length; c++) {
+      const cellRef = XLSX.utils.encode_cell({ r: 0, c });
+      if (ws[cellRef]) {
+        ws[cellRef].s = {
+          font: { bold: true },
+          fill: { fgColor: { rgb: "EAEAEA" } }
+        };
+      }
+    }
+
+    ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+    ws['!autofilter'] = {
+      ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } }),
+    };
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Mentor Report');
+    const date = new Date().toISOString().slice(0, 10);
+
+    // Format filename based on course if possible
+    const firstCourseName = students[0]?.assignment?.courseName || 'all-courses';
+    const safeCourseName = firstCourseName.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+
+    XLSX.writeFile(wb, `mentor-report-${safeCourseName}-${date}.xlsx`);
+    toast.success('Excel report downloaded.');
+  };
+
+  // ── derived / memoized ───────────────────────────────────────
+
+  // Unique students (deduplicated by id) — for stats that shouldn't double-count
+  const uniqueStudents = useMemo(() => {
+    const seen = new Set();
+    return students.filter(s => { if (seen.has(s.id)) return false; seen.add(s.id); return true; });
+  }, [students]);
+
+  // Filtered + course-filtered list (all assignment entries, not deduplicated)
+  const filteredStudents = useMemo(() => {
+    const bySearch = students.filter(s =>
+      (s.name || '').toLowerCase().includes(searchTerm.toLowerCase())
+    );
+    if (courseFilter === 'all') return bySearch;
+    return bySearch.filter(s => s.assignment?.course_id === courseFilter);
+  }, [students, searchTerm, courseFilter]);
+
+  // Group filtered students by course for the Students view
+  const studentsByCourse = useMemo(() => {
+    const grouped = {};
+    filteredStudents.forEach(s => {
+      const key = s.assignment?.course_id || '__none__';
+      const label = s.assignment?.courseName || 'No Course';
+      if (!grouped[key]) grouped[key] = { label, students: [] };
+      grouped[key].students.push(s);
+    });
+    return Object.values(grouped);
+  }, [filteredStudents]);
+
+  // Group messages by student
+  const messagesByStudent = useMemo(() => {
+    const grouped = {};
+    messages.forEach(m => {
+      if (!grouped[m.student_id]) {
+        grouped[m.student_id] = {
+          student_id: m.student_id,
+          studentName: m.studentName || 'Student',
+          messages: []
+        };
+      }
+      grouped[m.student_id].messages.push(m);
+    });
+    return Object.values(grouped);
+  }, [messages]);
+
+
+  // Distinct course options from assignments (for filter dropdown)
+  const courseOptions = useMemo(() => {
+    const seen = new Set();
+    return students
+      .filter(s => s.assignment?.course_id && !seen.has(s.assignment.course_id) && seen.add(s.assignment.course_id))
+      .map(s => ({ id: s.assignment.course_id, name: s.assignment.courseName }));
+  }, [students]);
+
+  const analyticsData = useMemo(() => uniqueStudents.map(s => ({
     name: s.name?.split(' ')[0] || 'S',
     successRate: s.submissionStats.total
       ? Math.round((s.submissionStats.passed / s.submissionStats.total) * 100)
       : 0,
     category: classify(s),
-  })), [students]);
+  })), [uniqueStudents]);
 
-  const filtered = useMemo(() => students.filter(s =>
-    (s.name + (s.email || '')).toLowerCase().includes(searchTerm.toLowerCase())
-  ), [students, searchTerm]);
-
-  const topCount        = useMemo(() => students.filter(s => classify(s) === 'top').length, [students]);
-  const strugglingCount = useMemo(() => students.filter(s => classify(s) === 'struggling').length, [students]);
-
-  // ── overview stats ──────────────────────────────────────────
-  const avgSuccess = students.length
-    ? Math.round(students.reduce((acc, s) => {
-        const ss = s.submissionStats;
-        return acc + (ss.total ? ss.passed / ss.total : 0);
-      }, 0) / students.length * 100)
+  const topCount = useMemo(() => uniqueStudents.filter(s => classify(s) === 'top').length, [uniqueStudents]);
+  const strugglingCount = useMemo(() => uniqueStudents.filter(s => classify(s) === 'struggling').length, [uniqueStudents]);
+  const avgSuccess = uniqueStudents.length
+    ? Math.round(uniqueStudents.reduce((acc, s) => {
+      const ss = s.submissionStats;
+      return acc + (ss.total ? ss.passed / ss.total : 0);
+    }, 0) / uniqueStudents.length * 100)
     : 0;
+
+  // Insights: at-risk, top performers, course-level stats
+  const insights = useMemo(() => {
+    const FIVE_DAYS = 5 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+
+    const atRisk = uniqueStudents
+      .map(s => {
+        const reasons = [];
+        const daysSince = s.lastActivity ? (now - new Date(s.lastActivity).getTime()) : Infinity;
+        if (daysSince > FIVE_DAYS) reasons.push(`Inactive ${Math.floor(daysSince / 86400000)}d`);
+        const ss = s.submissionStats;
+        if (ss.total >= 3 && ss.passed / ss.total < 0.5) reasons.push(`Low accuracy ${Math.round(ss.passed / ss.total * 100)}%`);
+        if (s.completedLessons === 0) reasons.push('No lessons completed');
+        return { ...s, riskReasons: reasons };
+      })
+      .filter(s => s.riskReasons.length > 0);
+
+    const topPerformers = [...uniqueStudents]
+      .sort((a, b) => (b.total_stars || 0) - (a.total_stars || 0))
+      .slice(0, 5);
+
+    // Course stats from all assignment entries (so counts are per-course, not per-student)
+    const courseMap = {};
+    students.forEach(s => {
+      const cid = s.assignment?.course_id;
+      const cname = s.assignment?.courseName || 'Unknown';
+      if (!cid) return;
+      if (!courseMap[cid]) courseMap[cid] = { name: cname, count: 0, totalAcc: 0, withSubs: 0, inactive: 0 };
+      const ss = s.submissionStats;
+      if (ss.total > 0) { courseMap[cid].totalAcc += ss.passed / ss.total; courseMap[cid].withSubs++; }
+      const daysSince = s.lastActivity ? (now - new Date(s.lastActivity).getTime()) : Infinity;
+      if (daysSince > FIVE_DAYS) courseMap[cid].inactive++;
+      courseMap[cid].count++;
+    });
+    const courseStats = Object.values(courseMap).map(c => ({
+      ...c,
+      avgAccuracy: c.withSubs > 0 ? Math.round(c.totalAcc / c.withSubs * 100) : 0,
+    }));
+
+    return { atRisk, topPerformers, courseStats };
+  }, [uniqueStudents, students]);
 
   // ─────────────────────────────────────────────────────────────
   return (
@@ -368,12 +573,11 @@ const MentorDashboard = () => {
           {SECTIONS.map(s => (
             <button
               key={s.id}
-              onClick={() => { setSection(s.id); setSearchTerm(''); setSelectedStudent(null); }}
-              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-md text-sm font-medium transition-all text-left ${
-                section === s.id
-                  ? 'bg-primary/15 text-primary'
-                  : 'text-text-secondary hover:text-foreground hover:bg-surface-highlight'
-              }`}
+              onClick={() => { setSection(s.id); setSearchTerm(''); setSelectedStudent(null); setCourseFilter('all'); }}
+              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-md text-sm font-medium transition-all text-left ${section === s.id
+                ? 'bg-primary/15 text-primary'
+                : 'text-text-secondary hover:text-foreground hover:bg-surface-highlight'
+                }`}
             >
               <s.icon className="w-4 h-4" />
               {s.label}
@@ -386,10 +590,9 @@ const MentorDashboard = () => {
           {SECTIONS.map(s => (
             <button
               key={s.id}
-              onClick={() => { setSection(s.id); setSearchTerm(''); setSelectedStudent(null); }}
-              className={`flex-none flex flex-col items-center gap-0.5 px-4 py-2 text-xs transition-colors ${
-                section === s.id ? 'text-primary' : 'text-text-secondary'
-              }`}
+              onClick={() => { setSection(s.id); setSearchTerm(''); setSelectedStudent(null); setCourseFilter('all'); }}
+              className={`flex-none flex flex-col items-center gap-0.5 px-3 py-2 text-xs transition-colors ${section === s.id ? 'text-primary' : 'text-text-secondary'
+                }`}
             >
               <s.icon className="w-4 h-4" />
               {s.label.split(' ')[0]}
@@ -409,9 +612,7 @@ const MentorDashboard = () => {
                 </h1>
                 <p className="text-text-secondary text-sm mt-1">
                   Mentor ID: <span className="text-primary font-mono">{user?.mentorProfile?.mentor_code}</span>
-                  {user?.mentorProfile?.expertise && (
-                    <> · <span>{user.mentorProfile.expertise}</span></>
-                  )}
+                  {user?.mentorProfile?.expertise && <> · <span>{user.mentorProfile.expertise}</span></>}
                 </p>
               </div>
 
@@ -419,13 +620,12 @@ const MentorDashboard = () => {
                 <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
               ) : (
                 <>
-                  {/* Stats */}
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                     {[
-                      { label: 'Total Students',   value: students.length,   icon: Users,         color: 'text-primary' },
-                      { label: 'Top Performers',   value: topCount,          icon: TrendingUp,    color: 'text-accent' },
-                      { label: 'Needs Help',        value: strugglingCount,   icon: TrendingDown,  color: 'text-warning' },
-                      { label: 'Avg Success Rate',  value: `${avgSuccess}%`, icon: Target,        color: 'text-secondary' },
+                      { label: 'Total Students', value: uniqueStudents.length, icon: Users, color: 'text-primary' },
+                      { label: 'Top Performers', value: topCount, icon: TrendingUp, color: 'text-accent' },
+                      { label: 'Needs Help', value: strugglingCount, icon: TrendingDown, color: 'text-warning' },
+                      { label: 'Avg Success Rate', value: `${avgSuccess}%`, icon: Target, color: 'text-secondary' },
                     ].map(item => (
                       <Card key={item.label} className="card-glass">
                         <CardContent className="pt-5 pb-4">
@@ -439,22 +639,21 @@ const MentorDashboard = () => {
                     ))}
                   </div>
 
-                  {/* Recent students */}
                   <Card className="card-glass">
                     <CardHeader className="pb-3">
                       <CardTitle className="text-base font-outfit text-foreground">Recent Students</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      {students.length === 0 ? (
+                      {uniqueStudents.length === 0 ? (
                         <p className="text-text-secondary text-sm py-4 text-center">No students assigned yet</p>
                       ) : (
                         <div className="space-y-3">
-                          {students.slice(0, 5).map(s => {
+                          {uniqueStudents.slice(0, 5).map(s => {
                             const cat = classify(s);
-                            const ss  = s.submissionStats;
-                            const sr  = ss.total ? Math.round(ss.passed / ss.total * 100) : 0;
+                            const ss = s.submissionStats;
+                            const sr = ss.total ? Math.round(ss.passed / ss.total * 100) : 0;
                             return (
-                              <div key={s.id} className="flex items-center gap-3">
+                              <div key={s.assignmentKey} className="flex items-center gap-3">
                                 <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary text-sm font-bold">
                                   {s.name?.charAt(0).toUpperCase()}
                                 </div>
@@ -463,7 +662,7 @@ const MentorDashboard = () => {
                                     <span className="text-sm font-medium text-foreground truncate">{s.name}</span>
                                     <ClassBadge cat={cat} />
                                   </div>
-                                  <p className="text-xs text-text-secondary">{sr}% success · {s.totalChallenges} challenges done</p>
+                                  <p className="text-xs text-text-secondary">{Math.round((s.totalChallenges / Math.max(s.assignment?.total_challenges || 1, 1)) * 100)}% progress · {s.assignment?.courseName}</p>
                                 </div>
                                 <span className="text-sm font-mono text-primary shrink-0">{s.total_stars} pts</span>
                               </div>
@@ -478,171 +677,297 @@ const MentorDashboard = () => {
             </div>
           )}
 
-          {/* ════ STUDENTS ════ */}
-          {section === 'students' && (
+          {/* ════ MY COURSES ════ */}
+          {section === 'courses' && (
             <div>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
-                <h1 className="text-2xl font-outfit font-bold text-foreground">
-                  Students <span className="text-lg text-text-secondary font-normal">({students.length})</span>
-                </h1>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-secondary" />
-                  <Input
-                    placeholder="Search..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-9 input-dark w-56"
-                  />
-                </div>
-              </div>
+              <h1 className="text-2xl font-outfit font-bold text-foreground mb-1">My Courses</h1>
+              <p className="text-text-secondary text-sm mb-6">
+                Select the courses you are actively mentoring. Students can only connect to you for courses you select here.
+              </p>
 
               {loading ? (
                 <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
-              ) : filtered.length === 0 ? (
-                <div className="text-center py-16 text-text-secondary">
-                  <Users className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                  <p>{students.length === 0 ? 'No students assigned yet' : 'No results'}</p>
-                </div>
               ) : (
-                <div className="space-y-3">
-                  {filtered.map(s => {
-                    const cat = classify(s);
-                    const ss  = s.submissionStats;
-                    const sr  = ss.total ? Math.round(ss.passed / ss.total * 100) : 0;
-                    return (
-                      <Card
-                        key={s.id}
-                        className="card-glass cursor-pointer hover:border-primary/40 transition-colors"
-                        onClick={() => {
-                          setSelectedStudent(s);
-                          fetchStudentDetail(s.id);
-                        }}
-                      >
-                        <CardContent className="pt-4 pb-4">
-                          <div className="flex items-center gap-4">
-                            <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold">
-                              {s.name?.charAt(0).toUpperCase()}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap mb-1">
-                                <span className="font-semibold text-foreground">{s.name}</span>
-                                <ClassBadge cat={cat} />
-                              </div>
-                              <p className="text-xs text-text-secondary mb-2">{s.email}</p>
-                              <div className="grid grid-cols-3 gap-4 text-xs">
-                                <div>
-                                  <span className="text-text-secondary">Success</span>
-                                  <div className="flex items-center gap-1 mt-0.5">
-                                    <Progress value={sr} className="h-1 flex-1" />
-                                    <span className="text-foreground font-mono w-8 text-right">{sr}%</span>
-                                  </div>
-                                </div>
-                                <div>
-                                  <span className="text-text-secondary">Points</span>
-                                  <p className="text-primary font-mono font-bold mt-0.5">{s.total_stars}</p>
-                                </div>
-                                <div>
-                                  <span className="text-text-secondary">Hints Used</span>
-                                  <p className="text-warning font-mono mt-0.5">{ss.hinted}/{ss.total}</p>
-                                </div>
-                              </div>
-                            </div>
-                            <div className="text-right text-xs text-text-secondary shrink-0">
-                              <p>Lv {s.level}</p>
-                              <p className="mt-1">{s.completedLessons} lessons</p>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
+                <div className="max-w-lg space-y-4">
+                  <Card className="card-glass">
+                    <CardContent className="pt-4 pb-2">
+                      {allCourses.length === 0 ? (
+                        <p className="text-text-secondary text-sm py-6 text-center">No courses available</p>
+                      ) : allCourses.map(course => {
+                        const checked = mentorCourseIds.has(course.id);
+                        return (
+                          <button
+                            key={course.id}
+                            onClick={() => setMentorCourseIds(prev => {
+                              const next = new Set(prev);
+                              if (next.has(course.id)) next.delete(course.id);
+                              else next.add(course.id);
+                              return next;
+                            })}
+                            className="w-full flex items-center gap-3 p-3 rounded-md hover:bg-surface-highlight transition-colors text-left mb-1"
+                          >
+                            {checked
+                              ? <CheckSquare className="w-4 h-4 text-primary shrink-0" />
+                              : <Square className="w-4 h-4 text-text-secondary shrink-0" />
+                            }
+                            <span className={`flex-1 text-sm font-medium ${checked ? 'text-foreground' : 'text-text-secondary'}`}>
+                              {course.title}
+                            </span>
+                            <Badge variant="outline" className="text-xs capitalize border-border/50 text-text-secondary">
+                              {course.level}
+                            </Badge>
+                          </button>
+                        );
+                      })}
+                    </CardContent>
+                  </Card>
+
+                  <div className="flex items-center gap-3">
+                    <Button onClick={saveMentorCourses} disabled={savingCourses} className="btn-primary">
+                      {savingCourses
+                        ? <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                        : <CheckSquare className="w-4 h-4 mr-2" />
+                      }
+                      Save Course Selection
+                    </Button>
+                    <span className="text-xs text-text-secondary">
+                      {mentorCourseIds.size} course{mentorCourseIds.size !== 1 ? 's' : ''} selected
+                    </span>
+                  </div>
                 </div>
               )}
             </div>
           )}
 
-          {/* ════ ANALYTICS ════ */}
-          {section === 'analytics' && (
+          {/* ════ STUDENTS ════ */}
+          {section === 'students' && (
             <div>
-              <h1 className="text-2xl font-outfit font-bold text-foreground mb-6">Analytics</h1>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+                <h1 className="text-2xl font-outfit font-bold text-foreground">
+                  Students <span className="text-lg text-text-secondary font-normal">({uniqueStudents.length})</span>
+                </h1>
+                <div className="flex gap-2 flex-wrap">
+                  {/* Course filter */}
+                  <select
+                    value={courseFilter}
+                    onChange={e => setCourseFilter(e.target.value)}
+                    className="bg-surface-highlight border border-border rounded-md px-3 py-2 text-sm text-foreground"
+                  >
+                    <option value="all">All Courses</option>
+                    {courseOptions.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-secondary" />
+                    <Input
+                      placeholder="Search..."
+                      value={searchTerm}
+                      onChange={e => setSearchTerm(e.target.value)}
+                      className="pl-9 input-dark w-48"
+                    />
+                  </div>
+                </div>
+              </div>
+
               {loading ? (
                 <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
-              ) : students.length === 0 ? (
-                <p className="text-center text-text-secondary py-16">No student data available</p>
+              ) : filteredStudents.length === 0 ? (
+                <div className="text-center py-16 text-text-secondary">
+                  <Users className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                  <p>{students.length === 0 ? 'No students assigned yet' : 'No results'}</p>
+                </div>
               ) : (
-                <div className="space-y-6">
-                  {/* Classification summary */}
-                  <div className="grid grid-cols-3 gap-4">
-                    {[
-                      { label: 'Top Performers',   count: topCount,                                  color: 'text-accent',      bg: 'bg-accent/10',      icon: TrendingUp },
-                      { label: 'Average',           count: students.length - topCount - strugglingCount, color: 'text-text-secondary', bg: 'bg-surface',  icon: Target },
-                      { label: 'Struggling',        count: strugglingCount,                           color: 'text-warning',     bg: 'bg-warning/10',     icon: TrendingDown },
-                    ].map(item => (
-                      <Card key={item.label} className={`card-glass ${item.bg}`}>
-                        <CardContent className="pt-4 pb-4 text-center">
-                          <item.icon className={`w-5 h-5 mx-auto mb-2 ${item.color}`} />
-                          <p className={`text-2xl font-bold font-outfit ${item.color}`}>{item.count}</p>
-                          <p className="text-xs text-text-secondary mt-1">{item.label}</p>
+                <div className="space-y-8">
+                  {studentsByCourse.map(group => (
+                    <div key={group.label}>
+                      {/* Course group header */}
+                      <div className="flex items-center gap-2 mb-3">
+                        <BookOpen className="w-4 h-4 text-primary" />
+                        <h2 className="text-sm font-semibold text-primary font-outfit">{group.label}</h2>
+                        <span className="text-xs text-text-secondary">({group.students.length})</span>
+                        <div className="flex-1 border-t border-border/40 ml-2" />
+                      </div>
+
+                      <div className="space-y-3">
+                        {group.students.map(s => {
+                          const cat = classify(s);
+                          const ss = s.submissionStats;
+                          const sr = ss.total ? Math.round(ss.passed / ss.total * 100) : 0;
+                          return (
+                            <Card
+                              key={s.assignmentKey}
+                              className="card-glass cursor-pointer hover:border-primary/40 transition-colors"
+                              onClick={() => { setSelectedStudent(s); fetchStudentDetail(s.id); }}
+                            >
+                              <CardContent className="pt-4 pb-4">
+                                <div className="flex items-center gap-4">
+                                  <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold">
+                                    {s.name?.charAt(0).toUpperCase()}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                                      <span className="font-semibold text-foreground">{s.name}</span>
+                                      <ClassBadge cat={cat} />
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-4 text-xs mt-3">
+                                      <div>
+                                        <span className="text-text-secondary">Progress</span>
+                                        <div className="flex items-center gap-1 mt-0.5">
+                                          <Progress value={Math.round((s.totalChallenges / Math.max(s.assignment?.total_challenges || 1, 1)) * 100)} className="h-1 flex-1" />
+                                          <span className="text-foreground font-mono w-8 text-right">{Math.round((s.totalChallenges / Math.max(s.assignment?.total_challenges || 1, 1)) * 100)}%</span>
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <span className="text-text-secondary">Points</span>
+                                        <p className="text-primary font-mono font-bold mt-0.5">{s.total_stars}</p>
+                                      </div>
+                                      <div>
+                                        <span className="text-text-secondary">Last Active</span>
+                                        <p className="text-foreground font-mono mt-0.5">{fmtRelative(s.lastActivity)}</p>
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="text-right text-xs text-text-secondary shrink-0">
+                                    <p>Lv {s.level}</p>
+                                    <p className="mt-1">{s.completedLessons} lessons</p>
+                                  </div>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ════ INSIGHTS ════ */}
+          {section === 'insights' && (
+            <div>
+              <h1 className="text-2xl font-outfit font-bold text-foreground mb-6">Insights</h1>
+
+              {loading ? (
+                <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+              ) : (
+                <div className="space-y-8">
+
+                  {/* Course-level stats */}
+                  {insights.courseStats.length > 0 && (
+                    <div>
+                      <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-3">Course Overview</h2>
+                      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {insights.courseStats.map(c => (
+                          <Card key={c.name} className="card-glass">
+                            <CardContent className="pt-5 pb-4">
+                              <div className="flex items-start justify-between mb-3">
+                                <div>
+                                  <p className="font-semibold text-foreground text-sm">{c.name}</p>
+                                  <p className="text-xs text-text-secondary mt-0.5">{c.count} student{c.count !== 1 ? 's' : ''}</p>
+                                </div>
+                                <BookOpen className="w-4 h-4 text-primary mt-0.5" />
+                              </div>
+                              <div className="space-y-2">
+                                <div className="flex justify-between text-xs">
+                                  <span className="text-text-secondary">Avg Accuracy</span>
+                                  <span className="text-foreground font-mono">{c.avgAccuracy}%</span>
+                                </div>
+                                <Progress value={c.avgAccuracy} className="h-1.5" />
+                                {c.inactive > 0 && (
+                                  <p className="text-xs text-warning flex items-center gap-1 mt-1">
+                                    <Clock className="w-3 h-3" />
+                                    {c.inactive} inactive &gt;5 days
+                                  </p>
+                                )}
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* At-risk students */}
+                  <div>
+                    <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-3 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-warning" />
+                      At-Risk Students
+                      {insights.atRisk.length > 0 && (
+                        <span className="bg-warning/20 text-warning text-xs px-2 py-0.5 rounded-full">{insights.atRisk.length}</span>
+                      )}
+                    </h2>
+                    {insights.atRisk.length === 0 ? (
+                      <Card className="card-glass">
+                        <CardContent className="py-8 text-center">
+                          <CheckCircle className="w-8 h-8 text-accent mx-auto mb-2" />
+                          <p className="text-sm text-text-secondary">All students are on track</p>
                         </CardContent>
                       </Card>
-                    ))}
+                    ) : (
+                      <div className="space-y-2">
+                        {insights.atRisk.map(s => (
+                          <Card key={s.assignmentKey} className="card-glass border-warning/20">
+                            <CardContent className="pt-3 pb-3">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-full bg-warning/20 flex items-center justify-center text-warning text-sm font-bold shrink-0">
+                                  {s.name?.charAt(0).toUpperCase()}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm font-medium text-foreground">{s.name}</span>
+                                    <Badge className="text-xs bg-warning/10 text-warning border-warning/30">At Risk</Badge>
+                                  </div>
+                                  <p className="text-xs text-text-secondary mt-0.5">{s.assignment?.courseName}</p>
+                                </div>
+                                <div className="text-right shrink-0">
+                                  {s.riskReasons.map((r, i) => (
+                                    <p key={i} className="text-xs text-warning">{r}</p>
+                                  ))}
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
-                  {/* Success rate chart */}
-                  <Card className="card-glass">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm font-outfit text-foreground">Student Success Rates</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <ResponsiveContainer width="100%" height={220}>
-                        <BarChart data={analyticsData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-                          <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} />
-                          <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} domain={[0, 100]} />
-                          <Tooltip
-                            contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '6px', fontSize: 12 }}
-                            formatter={(val) => [`${val}%`, 'Success Rate']}
-                          />
-                          <Bar dataKey="successRate" radius={[3, 3, 0, 0]}>
-                            {analyticsData.map((entry, i) => (
-                              <Cell
-                                key={i}
-                                fill={entry.category === 'top' ? 'hsl(var(--accent))' : entry.category === 'struggling' ? 'hsl(var(--warning))' : 'hsl(var(--primary))'}
-                              />
-                            ))}
-                          </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </CardContent>
-                  </Card>
-
-                  {/* Struggling students list */}
-                  {strugglingCount > 0 && (
-                    <Card className="card-glass border-warning/20">
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-sm font-outfit text-warning flex items-center gap-2">
-                          <AlertTriangle className="w-4 h-4" />
-                          Students Needing Attention
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-2">
-                          {students.filter(s => classify(s) === 'struggling').map(s => {
-                            const ss = s.submissionStats;
-                            const sr = ss.total ? Math.round(ss.passed / ss.total * 100) : 0;
-                            return (
-                              <div key={s.id} className="flex items-center justify-between py-2 border-b border-border/40 last:border-0">
-                                <div>
-                                  <p className="text-sm font-medium text-foreground">{s.name}</p>
-                                  <p className="text-xs text-text-secondary">{sr}% success · {ss.hinted} hints used</p>
-                                </div>
-                                <span className="text-xs text-text-secondary">{fmtDate(s.lastActivity)}</span>
+                  {/* Top performers */}
+                  <div>
+                    <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-3 flex items-center gap-2">
+                      <TrendingUp className="w-4 h-4 text-accent" />
+                      Top Performers
+                    </h2>
+                    {insights.topPerformers.length === 0 ? (
+                      <p className="text-text-secondary text-sm py-4">No students yet</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {insights.topPerformers.map((s, i) => {
+                          const ss = s.submissionStats;
+                          const sr = ss.total ? Math.round(ss.passed / ss.total * 100) : 0;
+                          return (
+                            <div key={s.assignmentKey} className="flex items-center gap-3 p-3 bg-surface-highlight rounded-md border border-border/40">
+                              <span className={`text-sm font-bold font-mono w-5 shrink-0 ${i === 0 ? 'text-accent' : i === 1 ? 'text-primary' : 'text-text-secondary'}`}>
+                                {i + 1}.
+                              </span>
+                              <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary text-sm font-bold shrink-0">
+                                {s.name?.charAt(0).toUpperCase()}
                               </div>
-                            );
-                          })}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  )}
+                              <div className="flex-1 min-w-0">
+                                <span className="text-sm font-medium text-foreground">{s.name}</span>
+                                <p className="text-xs text-text-secondary">{s.assignment?.courseName} · {Math.round((s.totalChallenges / Math.max(s.assignment?.total_challenges || 1, 1)) * 100)}% progress</p>
+                              </div>
+                              <span className="text-sm font-mono text-primary font-bold">{s.total_stars} pts</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
                 </div>
               )}
             </div>
@@ -653,7 +978,6 @@ const MentorDashboard = () => {
             <div>
               <h1 className="text-2xl font-outfit font-bold text-foreground mb-6">Messages</h1>
               <div className="grid lg:grid-cols-2 gap-6">
-                {/* Compose */}
                 <Card className="card-glass">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-sm font-outfit text-foreground flex items-center gap-2">
@@ -666,11 +990,11 @@ const MentorDashboard = () => {
                       <Label className="text-xs text-text-secondary">To Student</Label>
                       <select
                         value={msgForm.student_id}
-                        onChange={(e) => setMsgForm({ ...msgForm, student_id: e.target.value })}
+                        onChange={e => setMsgForm({ ...msgForm, student_id: e.target.value })}
                         className="w-full bg-surface-highlight border border-border rounded-md px-3 py-2 text-sm text-foreground"
                       >
                         <option value="">-- Select student --</option>
-                        {students.map(s => (
+                        {uniqueStudents.map(s => (
                           <option key={s.id} value={s.id}>{s.name}</option>
                         ))}
                       </select>
@@ -679,7 +1003,7 @@ const MentorDashboard = () => {
                       <Label className="text-xs text-text-secondary">Type</Label>
                       <select
                         value={msgForm.message_type}
-                        onChange={(e) => setMsgForm({ ...msgForm, message_type: e.target.value })}
+                        onChange={e => setMsgForm({ ...msgForm, message_type: e.target.value })}
                         className="w-full bg-surface-highlight border border-border rounded-md px-3 py-2 text-sm text-foreground"
                       >
                         {MSG_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
@@ -690,7 +1014,7 @@ const MentorDashboard = () => {
                       <Input
                         placeholder="e.g. Feedback on Module 3"
                         value={msgForm.subject}
-                        onChange={(e) => setMsgForm({ ...msgForm, subject: e.target.value })}
+                        onChange={e => setMsgForm({ ...msgForm, subject: e.target.value })}
                         className="input-dark"
                       />
                     </div>
@@ -699,7 +1023,7 @@ const MentorDashboard = () => {
                       <Textarea
                         placeholder="Write your message..."
                         value={msgForm.message}
-                        onChange={(e) => setMsgForm({ ...msgForm, message: e.target.value })}
+                        onChange={e => setMsgForm({ ...msgForm, message: e.target.value })}
                         className="input-dark resize-none"
                         rows={4}
                       />
@@ -711,32 +1035,60 @@ const MentorDashboard = () => {
                   </CardContent>
                 </Card>
 
-                {/* History */}
                 <Card className="card-glass">
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-outfit text-foreground">Sent Messages</CardTitle>
+                    <CardTitle className="text-sm font-outfit text-foreground flex items-center justify-between">
+                      Message History
+                      {messages.filter(m => m.from_student && !m.read).length > 0 && (
+                        <span className="text-xs bg-accent text-background font-semibold px-2 py-0.5 rounded-full">
+                          {messages.filter(m => m.from_student && !m.read).length} unread
+                        </span>
+                      )}
+                    </CardTitle>
                   </CardHeader>
                   <CardContent>
                     {loading ? (
                       <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>
                     ) : messages.length === 0 ? (
-                      <p className="text-text-secondary text-sm py-6 text-center">No messages sent yet</p>
+                      <p className="text-text-secondary text-sm py-6 text-center">No messages yet</p>
                     ) : (
-                      <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
-                        {messages.map(m => (
-                          <div key={m.id} className="p-3 bg-surface-highlight rounded-md border border-border/40">
-                            <div className="flex items-center justify-between mb-1">
-                              <div className="flex items-center gap-2">
-                                <User className="w-3.5 h-3.5 text-text-secondary" />
-                                <span className="text-sm font-medium text-foreground">{m.studentName}</span>
-                                <Badge variant="outline" className="text-xs border-primary/30 text-primary capitalize">
-                                  {m.message_type}
-                                </Badge>
-                              </div>
-                              <span className="text-xs text-text-secondary">{fmtDate(m.created_at)}</span>
+                      <div className="space-y-6 max-h-[600px] overflow-y-auto pr-1">
+                        {messagesByStudent.map(group => (
+                          <div key={group.student_id} className="border border-border/40 rounded-lg p-4 bg-surface/50">
+                            <div className="flex items-center gap-2 mb-4 pb-2 border-b border-border/40">
+                              <User className="w-4 h-4 text-primary" />
+                              <h3 className="text-sm font-semibold text-foreground font-outfit">{group.studentName}</h3>
+                              <span className="text-xs text-text-secondary">({group.messages.length} messages)</span>
                             </div>
-                            {m.subject && <p className="text-xs font-medium text-text-secondary mb-1">{m.subject}</p>}
-                            <p className="text-sm text-foreground line-clamp-2">{m.message}</p>
+                            <div className="space-y-3">
+                              {group.messages.map(m => (
+                                <div
+                                  key={m.id}
+                                  onClick={() => m.from_student && !m.read && markStudentMsgRead(m.id)}
+                                  className={`p-3 rounded-md border transition-colors ${m.from_student
+                                    ? m.read
+                                      ? 'bg-surface-highlight border-border/40'
+                                      : 'bg-accent/5 border-accent/30 cursor-pointer hover:bg-accent/10'
+                                    : 'bg-surface-highlight border-border/40'
+                                    }`}
+                                >
+                                  <div className="flex items-center justify-between mb-1">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-sm font-medium text-foreground">
+                                        {m.from_student ? m.studentName : 'You'}
+                                      </span>
+                                      {!m.from_student && (
+                                        <Badge variant="outline" className="text-xs border-primary/30 text-primary capitalize">{m.message_type}</Badge>
+                                      )}
+                                      {m.from_student && !m.read && <span className="w-1.5 h-1.5 rounded-full bg-accent" />}
+                                    </div>
+                                    <span className="text-xs text-text-secondary">{fmtDate(m.created_at)}</span>
+                                  </div>
+                                  {m.subject && <p className="text-xs font-medium text-text-secondary mb-1">{m.subject}</p>}
+                                  <p className="text-sm text-foreground line-clamp-2">{m.message}</p>
+                                </div>
+                              ))}
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -752,7 +1104,6 @@ const MentorDashboard = () => {
             <div>
               <h1 className="text-2xl font-outfit font-bold text-foreground mb-6">Interventions</h1>
               <div className="grid lg:grid-cols-2 gap-6">
-                {/* Log form */}
                 <Card className="card-glass">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-sm font-outfit text-foreground flex items-center gap-2">
@@ -765,11 +1116,11 @@ const MentorDashboard = () => {
                       <Label className="text-xs text-text-secondary">Student</Label>
                       <select
                         value={intForm.student_id}
-                        onChange={(e) => setIntForm({ ...intForm, student_id: e.target.value })}
+                        onChange={e => setIntForm({ ...intForm, student_id: e.target.value })}
                         className="w-full bg-surface-highlight border border-border rounded-md px-3 py-2 text-sm text-foreground"
                       >
                         <option value="">-- Select student --</option>
-                        {students.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        {uniqueStudents.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                       </select>
                     </div>
                     <div className="space-y-1">
@@ -780,11 +1131,10 @@ const MentorDashboard = () => {
                             key={a.value}
                             type="button"
                             onClick={() => setIntForm({ ...intForm, action_type: a.value })}
-                            className={`flex items-center gap-2 p-2.5 rounded-md border text-xs font-medium transition-all ${
-                              intForm.action_type === a.value
-                                ? 'bg-primary/20 border-primary text-primary'
-                                : 'bg-surface-highlight border-border text-text-secondary hover:border-white/20'
-                            }`}
+                            className={`flex items-center gap-2 p-2.5 rounded-md border text-xs font-medium transition-all ${intForm.action_type === a.value
+                              ? 'bg-primary/20 border-primary text-primary'
+                              : 'bg-surface-highlight border-border text-text-secondary hover:border-white/20'
+                              }`}
                           >
                             <a.icon className="w-3.5 h-3.5" />
                             {a.label}
@@ -797,7 +1147,7 @@ const MentorDashboard = () => {
                       <Textarea
                         placeholder="Describe the reason..."
                         value={intForm.description}
-                        onChange={(e) => setIntForm({ ...intForm, description: e.target.value })}
+                        onChange={e => setIntForm({ ...intForm, description: e.target.value })}
                         className="input-dark resize-none"
                         rows={3}
                       />
@@ -809,7 +1159,6 @@ const MentorDashboard = () => {
                   </CardContent>
                 </Card>
 
-                {/* Audit log */}
                 <Card className="card-glass">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-sm font-outfit text-foreground">Intervention Log</CardTitle>
@@ -842,6 +1191,39 @@ const MentorDashboard = () => {
                   </CardContent>
                 </Card>
               </div>
+
+              {/* Delete Student Section */}
+              <Card className="card-glass border-destructive/30 bg-destructive/5 mt-6">
+                <CardHeader className="pb-3 border-b border-destructive/10">
+                  <CardTitle className="text-sm font-outfit text-red-400 flex items-center gap-2">
+                    <AlertOctagon className="w-4 h-4" />
+                    Danger Zone: Remove Student
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-4 flex flex-col sm:flex-row items-end gap-4">
+                  <div className="flex-1 w-full space-y-1">
+                    <Label className="text-xs text-text-secondary">Select Student to Remove</Label>
+                    <select
+                      value={intForm.student_id}
+                      onChange={e => setIntForm({ ...intForm, student_id: e.target.value })}
+                      className="w-full bg-surface-highlight border border-border rounded-md px-3 py-2 text-sm text-foreground"
+                    >
+                      <option value="">-- Select student --</option>
+                      {uniqueStudents.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                  </div>
+                  <Button
+                    variant="destructive"
+                    disabled={!intForm.student_id || intLoading}
+                    onClick={() => removeStudent(intForm.student_id)}
+                    className="w-full sm:w-auto"
+                  >
+                    {intLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <User className="w-4 h-4 mr-2" />}
+                    Remove Student
+                  </Button>
+                </CardContent>
+              </Card>
+
             </div>
           )}
 
@@ -858,15 +1240,15 @@ const MentorDashboard = () => {
                       </div>
                       <div>
                         <p className="font-semibold text-foreground">Student Progress Report</p>
-                        <p className="text-xs text-text-secondary">CSV · {students.length} students</p>
+                        <p className="text-xs text-text-secondary">Excel (.xlsx) · {students.length} student rows</p>
                       </div>
                     </div>
                     <p className="text-xs text-text-secondary mb-4">
-                      Includes: name, email, points, level, lessons completed, success rate, hint rate.
+                      Includes: name, course, level, points, lessons, pass rate, hint rate, last active.
                     </p>
                     <Button onClick={downloadReport} disabled={students.length === 0} className="btn-primary w-full">
                       <FileDown className="w-4 h-4 mr-2" />
-                      Download CSV
+                      Download Excel (.xlsx)
                     </Button>
                   </CardContent>
                 </Card>
@@ -897,7 +1279,9 @@ const MentorDashboard = () => {
                   </div>
                   <div>
                     <p>{selectedStudent.name}</p>
-                    <p className="text-xs text-text-secondary font-normal">{selectedStudent.email}</p>
+                    <p className="text-xs text-text-secondary font-normal mt-0.5">
+                      {selectedStudent.assignment?.courseName}
+                    </p>
                   </div>
                 </DialogTitle>
               </DialogHeader>
@@ -906,12 +1290,12 @@ const MentorDashboard = () => {
                 <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
               ) : (
                 <div className="space-y-5 pt-2">
-                  {/* Quick stats */}
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-4 gap-3">
                     {[
-                      { label: 'Points',    value: selectedStudent.total_stars, color: 'text-primary' },
-                      { label: 'Level',     value: selectedStudent.level,       color: 'text-accent' },
-                      { label: 'Lessons',   value: selectedStudent.completedLessons, color: 'text-secondary' },
+                      { label: 'Progress', value: `${Math.round((selectedStudent.totalChallenges / Math.max(selectedStudent.assignment?.total_challenges || 1, 1)) * 100)}%`, color: 'text-accent' },
+                      { label: 'Points', value: selectedStudent.total_stars, color: 'text-primary' },
+                      { label: 'Level', value: selectedStudent.level, color: 'text-foreground' },
+                      { label: 'Lessons', value: selectedStudent.completedLessons, color: 'text-text-secondary' },
                     ].map(item => (
                       <div key={item.label} className="bg-surface-highlight rounded-md p-3 text-center">
                         <p className={`text-xl font-bold font-outfit ${item.color}`}>{item.value}</p>
@@ -920,7 +1304,6 @@ const MentorDashboard = () => {
                     ))}
                   </div>
 
-                  {/* Submission history */}
                   {studentDetail?.subs?.length > 0 && (
                     <div>
                       <p className="text-xs font-medium text-text-secondary uppercase tracking-wider mb-2">Recent Submissions</p>
@@ -947,14 +1330,13 @@ const MentorDashboard = () => {
                     </div>
                   )}
 
-                  {/* Quick actions */}
                   <div className="flex gap-2 pt-2 border-t border-border">
                     <Button
                       size="sm"
                       onClick={() => {
                         setSelectedStudent(null);
                         setStudentDetail(null);
-                        setMsgForm({ ...msgForm, student_id: selectedStudent.id });
+                        setMsgForm(f => ({ ...f, student_id: selectedStudent.id }));
                         setSection('messages');
                       }}
                       className="btn-primary"
@@ -968,7 +1350,7 @@ const MentorDashboard = () => {
                       onClick={() => {
                         setSelectedStudent(null);
                         setStudentDetail(null);
-                        setIntForm({ ...intForm, student_id: selectedStudent.id });
+                        setIntForm(f => ({ ...f, student_id: selectedStudent.id }));
                         setSection('interventions');
                       }}
                       className="border-border text-text-secondary"

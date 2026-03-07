@@ -92,7 +92,8 @@ ScriptArc_V1/
 │               ├── 006_security_fixes.sql          # Admin-only writes, unique submission constraint
 │               ├── 007_certificates.sql            # Certificates table + generate_certificate() RPC
 │               ├── 008_challenges_unit1_unit2.sql  # Additional challenge data
-│               └── 009_student_mentor_assign.sql   # Student self-assignment RLS fix
+│               ├── 009_student_mentor_assign.sql   # Student self-assignment RLS fix
+│               └── 010_messaging_fix.sql           # Mentor lookup RLS + bidirectional messaging
 ├── design_guidelines.json           # Design system specification
 └── CLAUDE.md                        # AI assistant instructions
 ```
@@ -137,6 +138,8 @@ V2/006_security_fixes.sql
 V2/007_certificates.sql
 V2/008_challenges_unit1_unit2.sql
 V2/009_student_mentor_assign.sql
+V2/010_messaging_fix.sql
+V2/011_course_mentor_system.sql
 ```
 
 All migrations are idempotent — safe to re-run.

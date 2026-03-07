@@ -26,6 +26,41 @@ const LANGUAGE_MAP = {
   50: { name: 'C', monaco: 'c' },
 };
 
+// ── MCQ Anti-Cheat: Deterministic per-user option shuffling ──────────────────
+// Mulberry32 — fast seedable PRNG with good distribution
+function mulberry32(seed) {
+  return function () {
+    let t = (seed += 0x6d2b79f5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// FNV-1a string → stable 32-bit unsigned integer
+function hashStr(s) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+// Fisher-Yates shuffle using seeded RNG.
+// Returns { text, originalIndex }[] so we can map the selection back to the DB answer.
+// Same userId + challengeId always produces the same order (deterministic),
+// but different users see different orders.
+function seededShuffle(options, seed) {
+  const rng = mulberry32(seed);
+  const arr = options.map((text, i) => ({ text, originalIndex: i }));
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
 const Learn = () => {
   const { lessonId } = useParams();
   const navigate = useNavigate();
@@ -71,6 +106,14 @@ const Learn = () => {
   const [mcqAttempts, setMcqAttempts] = useState(0);
   const [mcqResult, setMcqResult] = useState(null); // 'correct' | 'wrong' | null
 
+  // ── MCQ anti-cheat state ─────────────────────────────────────
+  // shuffledMcqOptions: Array<{ text: string, originalIndex: number }>
+  // Deterministic per (userId + challengeId) — same user always sees the same order,
+  // but different users see different orders, making letter-sharing useless.
+  const [shuffledMcqOptions, setShuffledMcqOptions] = useState([]);
+  // Track when a challenge was opened to detect suspiciously fast submissions.
+  const challengeOpenTimeRef = useRef(null);
+
   // ── Coding challenge state ───────────────────────────────────
   const [code, setCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -87,6 +130,8 @@ const Learn = () => {
   const [sessionPoints, setSessionPoints] = useState(0);
   const [showComplete, setShowComplete] = useState(false);
   const showCompleteRef = useRef(false);
+  const lessonCompletionShownRef = useRef(false);
+  const sessionPointsRef = useRef(0);
 
   // ── Mobile detection ─────────────────────────────────────────
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
@@ -106,6 +151,9 @@ const Learn = () => {
   useEffect(() => {
     showCompleteRef.current = showComplete;
   }, [showComplete]);
+  useEffect(() => {
+    sessionPointsRef.current = sessionPoints;
+  }, [sessionPoints]);
 
   // ── Bunny video ID for current lesson ────────────────────────
   const bunnyVideoId = useMemo(() => {
@@ -202,8 +250,10 @@ const Learn = () => {
           // Only show completion when the video actually finishes AND challenges are done
           const total = sortedChallengesRef.current.length;
           const done = completedChallengesRef.current.size;
-          if (total === 0 || done >= total) {
+          if ((total === 0 || done >= total) && !lessonCompletionShownRef.current) {
+            lessonCompletionShownRef.current = true;
             setShowComplete(true);
+            saveProgressRef.current(completedChallengesRef.current, sessionPointsRef.current, true);
           }
         }
       });
@@ -217,6 +267,17 @@ const Learn = () => {
 
         setCurrentTime(time);
         if (dur) setDuration(dur);
+
+        // ── 90% Completion Check ──
+        if (dur > 0 && time >= dur * 0.9 && !lessonCompletionShownRef.current) {
+          const total = sortedChallengesRef.current.length;
+          const done = completedChallengesRef.current.size;
+          if (total === 0 || done >= total) {
+            lessonCompletionShownRef.current = true;
+            setShowComplete(true);
+            saveProgressRef.current(completedChallengesRef.current, sessionPointsRef.current, true);
+          }
+        }
 
         if (!hasSpecialAccess) {
           // ── Enforce lock: snap back to challenge position while locked ──
@@ -296,6 +357,18 @@ const Learn = () => {
       setShowHintOption(false);
       setCodeAttemptCount(0);
     }
+
+    // Compute deterministic shuffle: same user always sees the same option order,
+    // different users see different orders — makes letter-sharing useless.
+    if (ch.challenge_type === 'mcq' && authUser?.id && ch.options?.length > 0) {
+      const seed = hashStr(authUser.id + ch.id);
+      setShuffledMcqOptions(seededShuffle(ch.options, seed));
+    } else {
+      setShuffledMcqOptions([]);
+    }
+
+    // Record open time for bot-detection (submission < 1.5s = suspiciously fast)
+    challengeOpenTimeRef.current = Date.now();
   };
 
   // Keep ref in sync on every render so the playerjs timeupdate callback
@@ -322,11 +395,14 @@ const Learn = () => {
   };
 
   // ── Progress save ────────────────────────────────────────────
-  const saveProgress = async (newCompleted, newStars) => {
+  const saveProgress = async (newCompleted, newStars, forceComplete = false) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const isComplete = newCompleted.size >= challenges.length && challenges.length > 0;
+      const allChallengesDone = challenges.length === 0 || newCompleted.size >= challenges.length;
+      const watchedEnough = duration > 0 && currentTime >= duration * 0.9;
+      const isComplete = forceComplete || (allChallengesDone && watchedEnough);
+
       await supabase.from('user_progress').upsert({
         user_id: user.id,
         lesson_id: lessonId,
@@ -343,6 +419,11 @@ const Learn = () => {
     }
   };
 
+  const saveProgressRef = useRef(saveProgress);
+  useEffect(() => {
+    saveProgressRef.current = saveProgress;
+  }, [saveProgress]);
+
   const onChallengeComplete = async (pointsEarned) => {
     if (completedChallenges.has(activeChallenge?.id)) return;
     if (completingRef.current) return;
@@ -352,6 +433,17 @@ const Learn = () => {
       const newPoints = sessionPoints + pointsEarned;
       setCompletedChallenges(newCompleted);
       setSessionPoints(newPoints);
+
+      if (newCompleted.size >= challenges.length && duration > 0 && currentTime < duration * 0.9) {
+        toast.success(
+          <div className="flex flex-col gap-1">
+            <span className="font-semibold text-sm">✔ All Challenges Completed!</span>
+            <span className="text-xs opacity-90">Finish watching the video to unlock the next lesson.</span>
+          </div>,
+          { duration: 6000 }
+        );
+      }
+
       await saveProgress(newCompleted, newPoints);
     } finally {
       completingRef.current = false;
@@ -365,7 +457,21 @@ const Learn = () => {
     const newAttempts = mcqAttempts + 1;
     setMcqAttempts(newAttempts);
 
-    if (selectedOption === activeChallenge.correct_option) {
+    // Bot detection: log suspiciously fast answers (< 1500 ms) but don't block
+    if (challengeOpenTimeRef.current) {
+      const elapsed = Date.now() - challengeOpenTimeRef.current;
+      if (elapsed < 1500) {
+        console.warn('[AntiCheat] Fast MCQ submission:', elapsed, 'ms — challenge:', activeChallenge?.id);
+      }
+    }
+
+    // Resolve the shuffled selection back to the original options index.
+    // If no shuffle (fallback), use selectedOption directly.
+    const originalIdx = shuffledMcqOptions.length > 0
+      ? (shuffledMcqOptions[selectedOption]?.originalIndex ?? selectedOption)
+      : selectedOption;
+
+    if (originalIdx === activeChallenge.correct_option) {
       setMcqResult('correct');
       // Save submission — MCQ: 2 pts (no hint), 1 pt (hint shown), 0 pts (solution)
       const mcqHintUsed = newAttempts > 2 && (activeChallenge.hints?.length > 0);
@@ -677,110 +783,70 @@ except Exception as e:
               )}
             </div>
 
-            {/* Enhanced Video Controls — YouTube-style playbar */}
-            <div className="px-4 py-3 bg-surface border-t border-border space-y-2">
-              {/* Seekable video timeline */}
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-text-secondary font-mono w-10 shrink-0 tabular-nums">
-                  {formatTime(currentTime)}
-                </span>
-                <div className="relative flex-1 flex items-center">
-                  <input
-                    type="range"
-                    min="0"
-                    max={duration || 100}
-                    step="0.5"
-                    value={Math.min(currentTime, duration || 100)}
-                    onChange={(e) => {
-                      if (isPlayerLocked || !playerInstanceRef.current) return;
-                      const requested = Number(e.target.value);
-                      const capped = Math.min(requested, getMaxSeekTime());
-                      playerInstanceRef.current.setCurrentTime(capped);
-                    }}
-                    disabled={isPlayerLocked || !bunnyVideoId}
-                    className="w-full h-1.5 appearance-none rounded-full bg-border accent-primary cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                    style={{
-                      background: duration > 0
-                        ? `linear-gradient(to right, hsl(var(--primary)) ${(currentTime / duration) * 100}%, hsl(var(--border)) ${(currentTime / duration) * 100}%)`
-                        : undefined,
-                    }}
-                    data-testid="video-seekbar"
-                  />
-                  {/* Challenge timestamp markers */}
-                  {duration > 0 && challenges.map((ch) => (
-                    <div
-                      key={ch.id}
-                      className={`absolute top-0 h-1.5 w-1 rounded-full pointer-events-none ${completedChallenges.has(ch.id) ? 'bg-accent' : 'bg-warning'}`}
-                      style={{ left: `calc(${(ch.timestamp_seconds / duration) * 100}% - 2px)` }}
-                      title={`${ch.title} @ ${formatTime(ch.timestamp_seconds)}`}
-                    />
-                  ))}
-                </div>
-                <span className="text-xs text-text-secondary font-mono w-10 shrink-0 text-right tabular-nums">
-                  {formatTime(duration)}
-                </span>
-              </div>
+            {/* Challenge Progress indicator replacing custom seekbar */}
+            <div className="px-4 py-4 bg-surface border-t border-border flex flex-col gap-4 transition-colors">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                  <span className="text-sm font-medium text-text-secondary">Challenge Progress:</span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {challenges.map((ch, i) => {
+                      const done = completedChallenges.has(ch.id);
+                      let state = 'locked';
+                      if (done) state = 'completed';
+                      else {
+                        const sorted = [...challenges].sort((a, b) => a.timestamp_seconds - b.timestamp_seconds);
+                        const firstUncompleted = sorted.find(c => !completedChallenges.has(c.id));
+                        if (firstUncompleted && firstUncompleted.id === ch.id) {
+                          state = 'current';
+                        }
+                      }
 
-              {/* Controls row */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1">
-                  {/* Rewind 10s */}
-                  <button
-                    onClick={() => {
-                      if (isPlayerLocked || !playerInstanceRef.current) return;
-                      playerInstanceRef.current.setCurrentTime(Math.max(0, currentTime - 10));
-                    }}
-                    disabled={isPlayerLocked || !bunnyVideoId}
-                    className="p-1.5 rounded-md text-text-secondary hover:text-foreground hover:bg-surface-highlight disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-                    title="Rewind 10 seconds"
-                    data-testid="rewind-10s-btn"
-                  >
-                    <SkipBack className="w-4 h-4" />
-                  </button>
-                  <span className="text-[10px] text-text-secondary select-none w-4 text-center">10</span>
-
-                  {/* Skip forward 10s */}
-                  <button
-                    onClick={() => {
-                      if (isPlayerLocked || !playerInstanceRef.current) return;
-                      const newTime = Math.min(getMaxSeekTime(), currentTime + 10);
-                      playerInstanceRef.current.setCurrentTime(newTime);
-                    }}
-                    disabled={isPlayerLocked || !bunnyVideoId}
-                    className="p-1.5 rounded-md text-text-secondary hover:text-foreground hover:bg-surface-highlight disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-                    title="Skip 10 seconds"
-                    data-testid="skip-10s-btn"
-                  >
-                    <SkipForward className="w-4 h-4" />
-                  </button>
-                  <span className="text-[10px] text-text-secondary select-none w-4 text-center">10</span>
-
-                  {/* Points */}
-                  <div className="flex items-center gap-1.5 ml-3">
-                    <Target className="w-3.5 h-3.5 text-primary" />
-                    <span className="text-sm font-semibold text-foreground">{sessionPoints} pts</span>
+                      return (
+                        <button
+                          key={ch.id}
+                          onClick={() => {
+                            if (done && playerInstanceRef.current && !isPlayerLocked) {
+                              playerInstanceRef.current.setCurrentTime(ch.timestamp_seconds);
+                              playerInstanceRef.current.play();
+                              setIsPlaying(true);
+                            }
+                          }}
+                          className={`w-7 h-7 rounded-full flex items-center justify-center transition-all ${state === 'completed' ? 'bg-accent/20 text-accent hover:bg-accent/30 cursor-pointer pointer-events-auto border border-accent/30' :
+                            state === 'current' ? 'bg-primary/20 text-primary border-2 border-primary/50 cursor-default' :
+                              'bg-surface-highlight text-text-secondary border border-border opacity-60 cursor-not-allowed pointer-events-none'
+                            }`}
+                          title={`${ch.title} @ ${formatTime(ch.timestamp_seconds)}`}
+                          data-testid={`challenge-progress-${i}`}
+                        >
+                          {state === 'completed' ? <CheckCircle className="w-3.5 h-3.5" /> :
+                            state === 'current' ? <Play className="w-3 h-3 ml-0.5" /> :
+                              <span className="text-[10px] font-mono font-bold">{i + 1}</span>}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
-
-                {/* Challenge tracker dots */}
-                <div className="flex items-center gap-1.5">
-                  {challenges.map((ch, i) => {
-                    const done = completedChallenges.has(ch.id);
-                    return (
-                      <div
-                        key={ch.id}
-                        className={`flex items-center justify-center w-6 h-6 rounded-full border ${done ? 'bg-accent/20 border-accent/40 text-accent' : 'bg-surface-highlight border-border text-text-secondary'}`}
-                        title={`${ch.title} @ ${formatTime(ch.timestamp_seconds)}`}
-                      >
-                        {done ? <CheckCircle className="w-3.5 h-3.5" /> : <span className="text-[10px] font-mono font-bold">{i + 1}</span>}
-                      </div>
-                    );
-                  })}
-                  {isPlaying && (
-                    <span className="text-xs text-accent font-medium ml-1">Live</span>
-                  )}
+                <div className="flex items-center gap-1.5 bg-surface-highlight px-3 py-1.5 rounded-full border border-border shrink-0">
+                  <Target className="w-4 h-4 text-primary" />
+                  <span className="text-sm font-semibold text-foreground">{sessionPoints} pts</span>
                 </div>
               </div>
+
+              {/* Progress Bar */}
+              {challenges.length > 0 && (
+                <div className="space-y-1.5 mt-1">
+                  <div className="flex justify-between text-xs text-text-secondary font-medium">
+                    <span>Challenges: {completedChallenges.size} / {challenges.length} completed</span>
+                    <span className="text-primary">{progressPct}%</span>
+                  </div>
+                  <div className="h-1.5 w-full bg-surface-highlight rounded-full overflow-hidden border border-white/5">
+                    <div
+                      className="h-full bg-primary transition-all duration-500 ease-out"
+                      style={{ width: `${progressPct}%` }}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -900,12 +966,38 @@ except Exception as e:
 
             {/* ── MCQ content ── */}
             {activeChallenge?.challenge_type === 'mcq' && (
-              <div className="flex flex-col h-full">
+              <div
+                className="flex flex-col h-full relative"
+                onCopy={(e) => e.preventDefault()}
+                onCut={(e) => e.preventDefault()}
+                onContextMenu={(e) => e.preventDefault()}
+                style={{ userSelect: 'none' }}
+              >
+                {/* Watermark — faint user identifier; helps trace screenshot sharing */}
+                <div
+                  className="pointer-events-none absolute inset-0 flex items-center justify-center z-0 overflow-hidden"
+                  aria-hidden="true"
+                >
+                  <div
+                    className="font-mono text-foreground/[0.04] font-bold text-center whitespace-nowrap leading-loose select-none"
+                    style={{ transform: 'rotate(-25deg)', fontSize: '0.65rem' }}
+                  >
+                    {authUser?.name || authUser?.email}
+                    <br />
+                    {authUser?.id?.slice(0, 8)}
+                  </div>
+                </div>
+
                 {/* Options */}
-                <div className="space-y-3 flex-1 flex flex-col justify-center">
-                  {(activeChallenge.options || []).map((opt, i) => {
+                <div className="space-y-3 flex-1 flex flex-col justify-center relative z-10">
+                  {(shuffledMcqOptions.length > 0
+                    ? shuffledMcqOptions
+                    : (activeChallenge.options || []).map((text, i) => ({ text, originalIndex: i }))
+                  ).map(({ text }, i) => {
                     const isSelected = selectedOption === i;
-                    const isCorrect = mcqResult === 'correct' && i === activeChallenge.correct_option;
+                    // After shuffling, the correct option is wherever the user's selection maps back
+                    // correctly — we just highlight the selected option on 'correct' result.
+                    const isCorrect = mcqResult === 'correct' && isSelected;
                     const isWrong = mcqResult === 'wrong' && isSelected;
                     return (
                       <label
@@ -928,7 +1020,7 @@ except Exception as e:
                         <span className="text-sm font-mono font-semibold text-text-secondary mr-1 shrink-0">
                           {String.fromCharCode(65 + i)}.
                         </span>
-                        <span className={`text-sm ${isCorrect ? 'text-accent font-medium' : 'text-foreground'}`}>{opt}</span>
+                        <span className={`text-sm ${isCorrect ? 'text-accent font-medium' : 'text-foreground'}`}>{text}</span>
                       </label>
                     );
                   })}
@@ -966,7 +1058,12 @@ except Exception as e:
 
                 {/* Action button */}
                 <div className="flex justify-end gap-2 pt-2 border-t border-border mt-auto">
-                  {hasSpecialAccess && mcqResult !== 'correct' && (
+                  {completedChallenges.has(activeChallenge?.id) && mcqResult !== 'correct' && (
+                    <Button variant="outline" onClick={resumeVideo} className="border-accent text-accent hover:bg-accent/10">
+                      Already Completed? Continue
+                    </Button>
+                  )}
+                  {hasSpecialAccess && mcqResult !== 'correct' && !completedChallenges.has(activeChallenge?.id) && (
                     <Button variant="outline" onClick={resumeVideo} className="border-warning text-warning hover:bg-warning/10" data-testid="skip-challenge-btn">
                       Skip Challenge
                     </Button>
@@ -1135,6 +1232,18 @@ except Exception as e:
                           </div>
 
                           <div className="flex-1 p-4 overflow-y-auto font-mono text-sm bg-black text-white whitespace-pre-wrap">
+                            {completedChallenges.has(activeChallenge?.id) && !codeResult && (
+                              <div className="mb-6 p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <CheckCircle className="w-5 h-5 text-emerald-400" />
+                                  <span className="text-emerald-400 font-medium">Challenge Already Completed!</span>
+                                </div>
+                                <Button onClick={resumeVideo} size="sm" className="bg-emerald-600 hover:bg-emerald-500">
+                                  Continue to Video
+                                </Button>
+                              </div>
+                            )}
+
                             {codeResult ? (
                               <>
                                 <div className={`mb-3 pb-2 border-b text-xs font-bold ${codeResult.passed ? 'text-emerald-400 border-emerald-900/50' : 'text-red-400 border-red-900/50'}`}>
@@ -1147,25 +1256,19 @@ except Exception as e:
                                 ) : (
                                   <span className="text-gray-300">{codeResult.output || '(No output)'}</span>
                                 )}
-                                {codeResult.type === 'submission' && codeResult.passed && !completedChallenges.has(activeChallenge?.id) && (
+                                {codeResult.type === 'submission' && codeResult.passed && (
                                   <div className="mt-4 pt-4 border-t border-emerald-900/50">
                                     <Button onClick={resumeVideo} className="bg-emerald-500 hover:bg-emerald-400 text-white w-full">
-                                      Continue Video
-                                      <ArrowRight className="w-4 h-4 ml-2" />
-                                    </Button>
-                                  </div>
-                                )}
-                                {codeResult.type === 'submission' && codeResult.passed && completedChallenges.has(activeChallenge?.id) && (
-                                  <div className="mt-4 pt-4 border-t border-emerald-900/50">
-                                    <Button onClick={resumeVideo} className="bg-emerald-500 hover:bg-emerald-400 text-white w-full">
-                                      Close & Continue
+                                      {completedChallenges.has(activeChallenge?.id) ? 'Close & Continue' : 'Continue Video'}
                                       <ArrowRight className="w-4 h-4 ml-2" />
                                     </Button>
                                   </div>
                                 )}
                               </>
                             ) : (
-                              <span className="text-text-secondary opacity-50">Run code to see output...</span>
+                              !completedChallenges.has(activeChallenge?.id) && (
+                                <span className="text-text-secondary opacity-50">Run code to see output...</span>
+                              )
                             )}
                           </div>
                         </Panel>
@@ -1242,7 +1345,13 @@ except Exception as e:
       {/* ═══════════════════════════════════════════════════════════
           Lesson Complete Dialog
       ═══════════════════════════════════════════════════════════ */}
-      <Dialog open={showComplete} onOpenChange={() => { }}>
+      <Dialog open={showComplete} onOpenChange={(open) => {
+        setShowComplete(open);
+        if (!open && playerInstanceRef.current) {
+          playerInstanceRef.current.play();
+          setIsPlaying(true);
+        }
+      }}>
         <DialogContent className="w-[92vw] sm:max-w-md bg-surface border-border text-center p-6 sm:p-8" aria-describedby="lesson-complete-desc">
           <DialogTitle className="sr-only">Lesson Complete</DialogTitle>
           <DialogDescription id="lesson-complete-desc" className="sr-only">You have completed all challenges in this lesson.</DialogDescription>
@@ -1259,7 +1368,7 @@ except Exception as e:
               <span className="text-sm text-text-secondary">points earned</span>
             </div>
 
-            <div className="flex flex-col gap-2 w-full pt-2">
+            <div className="flex flex-col gap-3 w-full pt-2">
               {nextLesson ? (
                 <Button
                   onClick={() => navigate(`/learn/${nextLesson.id}`)}
@@ -1270,10 +1379,26 @@ except Exception as e:
                   <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
               ) : (
-                <div className="p-4 bg-primary/10 border border-primary/20 rounded-xl">
+                <div className="p-4 bg-primary/10 border border-primary/20 rounded-xl mb-2">
                   <p className="text-sm font-medium text-primary">🎓 You've completed all lessons!</p>
                 </div>
               )}
+
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowComplete(false);
+                  if (playerInstanceRef.current) {
+                    playerInstanceRef.current.play();
+                    setIsPlaying(true);
+                  }
+                }}
+                className="w-full text-foreground hover:text-foreground border-border hover:bg-surface-highlight"
+                data-testid="continue-watching-btn"
+              >
+                Continue Watching
+              </Button>
+
               <Button
                 variant="ghost"
                 onClick={() => navigate(`/courses/${lesson.course_id}`)}

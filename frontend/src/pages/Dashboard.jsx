@@ -6,16 +6,19 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Trophy,
   ArrowRight,
   BookOpen,
-  Award,
   Clock,
   Loader2,
   Star,
   GraduationCap,
-  Target
+  Target,
+  MessageSquare,
+  Send,
+  Inbox,
 } from 'lucide-react';
 
 const Dashboard = () => {
@@ -23,12 +26,16 @@ const Dashboard = () => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [dashboardData, setDashboardData] = useState(null);
+  const [mentorInfo, setMentorInfo] = useState(null);   // { mentor_id, mentor_name }
+  const [messages, setMessages] = useState([]);
+  const [replyText, setReplyText] = useState('');
+  const [replyLoading, setReplyLoading] = useState(false);
 
   useEffect(() => {
     const fetchDashboard = async () => {
       try {
-        // Fetch all three in parallel
-        const [progressRes, submissionsRes, rankRes] = await Promise.all([
+        // Fetch all in parallel
+        const [progressRes, submissionsRes, rankRes, assignRes] = await Promise.all([
           supabase
             .from('user_progress')
             .select('course_id, stars_earned, completed_challenge_ids, courses(*)')
@@ -44,7 +51,28 @@ const Dashboard = () => {
             .select('rank')
             .eq('id', user.id)
             .maybeSingle(),
+          supabase
+            .from('mentor_students')
+            .select('mentor_id')
+            .eq('student_id', user.id)
+            .maybeSingle(),
         ]);
+
+        // Fetch mentor messages if assigned
+        const assignment = assignRes.data;
+        if (assignment?.mentor_id) {
+          const [mentorRes, msgsRes] = await Promise.all([
+            supabase.from('users').select('id, name').eq('id', assignment.mentor_id).maybeSingle(),
+            supabase
+              .from('mentor_messages')
+              .select('id, subject, message, message_type, read, created_at, from_student')
+              .eq('student_id', user.id)
+              .order('created_at', { ascending: false })
+              .limit(30),
+          ]);
+          setMentorInfo({ mentor_id: assignment.mentor_id, mentor_name: mentorRes.data?.name || 'Your Mentor' });
+          setMessages(msgsRes.data || []);
+        }
 
         const progressList = progressRes.data || [];
         const courseMap = {};
@@ -92,6 +120,45 @@ const Dashboard = () => {
       setLoading(false);
     }
   }, [user]);
+
+  const markAsRead = async (msgId) => {
+    const { error } = await supabase
+      .from('mentor_messages')
+      .update({ read: true })
+      .eq('id', msgId);
+    if (!error) {
+      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, read: true } : m));
+    }
+  };
+
+  const sendReply = async () => {
+    if (!replyText.trim() || !mentorInfo?.mentor_id) return;
+    setReplyLoading(true);
+    try {
+      const { error } = await supabase.from('mentor_messages').insert({
+        mentor_id:    mentorInfo.mentor_id,
+        student_id:   user.id,
+        message:      replyText.trim(),
+        message_type: 'feedback',
+        from_student: true,
+      });
+      if (error) throw error;
+      setReplyText('');
+      setMessages(prev => [{
+        id: crypto.randomUUID(),
+        message: replyText.trim(),
+        message_type: 'feedback',
+        from_student: true,
+        read: true,
+        created_at: new Date().toISOString(),
+      }, ...prev]);
+      toast.success('Message sent to your mentor.');
+    } catch (err) {
+      toast.error(err.message || 'Failed to send message.');
+    } finally {
+      setReplyLoading(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -303,6 +370,89 @@ const Dashboard = () => {
                 </Button>
               </CardContent>
             </Card>
+
+            {/* Mentor Messages */}
+            {mentorInfo && (
+              <Card className="card-glass" data-testid="messages-card">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-foreground font-outfit text-lg flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <MessageSquare className="w-5 h-5 text-primary" />
+                      Messages
+                    </span>
+                    {messages.filter(m => !m.read && !m.from_student).length > 0 && (
+                      <span className="text-xs bg-primary text-primary-foreground font-semibold px-2 py-0.5 rounded-full">
+                        {messages.filter(m => !m.read && !m.from_student).length} new
+                      </span>
+                    )}
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground">From {mentorInfo.mentor_name}</p>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {/* Message thread */}
+                  <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                    {messages.length === 0 ? (
+                      <div className="flex flex-col items-center py-6 text-center">
+                        <Inbox className="w-8 h-8 text-muted-foreground opacity-40 mb-2" />
+                        <p className="text-xs text-muted-foreground">No messages yet</p>
+                      </div>
+                    ) : (
+                      messages.map(m => (
+                        <div
+                          key={m.id}
+                          onClick={() => !m.read && !m.from_student && markAsRead(m.id)}
+                          className={`p-3 rounded-md border text-sm transition-colors ${
+                            m.from_student
+                              ? 'bg-primary/5 border-primary/20 ml-4'
+                              : m.read
+                                ? 'bg-surface-highlight border-border/30'
+                                : 'bg-accent/5 border-accent/20 cursor-pointer hover:bg-accent/10'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-medium text-muted-foreground">
+                              {m.from_student ? 'You' : mentorInfo.mentor_name}
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              {!m.read && !m.from_student && (
+                                <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
+                              )}
+                              <span className="text-xs text-muted-foreground">
+                                {new Date(m.created_at).toLocaleDateString()}
+                              </span>
+                            </div>
+                          </div>
+                          <p className="text-foreground line-clamp-2">{m.message}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Reply box */}
+                  <div className="pt-2 border-t border-border/40 space-y-2">
+                    <Textarea
+                      placeholder="Reply to your mentor..."
+                      value={replyText}
+                      onChange={(e) => setReplyText(e.target.value)}
+                      className="input-dark resize-none text-sm"
+                      rows={2}
+                      data-testid="reply-textarea"
+                    />
+                    <Button
+                      onClick={sendReply}
+                      disabled={replyLoading || !replyText.trim()}
+                      className="btn-primary w-full h-9 text-sm"
+                      data-testid="reply-send-btn"
+                    >
+                      {replyLoading
+                        ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                        : <Send className="w-3.5 h-3.5 mr-1.5" />}
+                      Send Reply
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </div>
         </div>
       </div>

@@ -1,73 +1,14 @@
 -- ============================================================
 -- ScriptArc — Supabase PostgreSQL Schema (V2)
--- Migration 007: Certificate System
+-- Migration 011: Certificate System Fix
 -- ============================================================
--- Run after 006_security_fixes.sql.
--- All statements are idempotent (safe to re-run).
--- ============================================================
+-- Fixes 404/Permission issues by broadening search_path and 
+-- adding explicit grants.
 
-
--- ============================================================
--- 1. EXTENSIONS
--- ============================================================
-CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- for SHA-256 hashing
-
-
--- ============================================================
--- 2. SEQUENCE: incrementing certificate numbers
--- ============================================================
-CREATE SEQUENCE IF NOT EXISTS public.certificate_seq START 1;
-
-
--- ============================================================
--- 3. CERTIFICATES TABLE
--- ============================================================
-CREATE TABLE IF NOT EXISTS public.certificates (
-  id               uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
-  certificate_id   text        NOT NULL UNIQUE,
-  user_id          uuid        NOT NULL REFERENCES public.users(id)   ON DELETE CASCADE,
-  course_id        uuid        NOT NULL REFERENCES public.courses(id) ON DELETE CASCADE,
-  student_name     text        NOT NULL,
-  course_name      text        NOT NULL,
-  mentor_name      text        NOT NULL DEFAULT 'ScriptArc',
-  score            int         NOT NULL DEFAULT 0,
-  max_score        int         NOT NULL DEFAULT 1,
-  star_rating      int         NOT NULL DEFAULT 1 CHECK (star_rating BETWEEN 1 AND 5),
-  completion_date  date        NOT NULL DEFAULT CURRENT_DATE,
-  certificate_hash text        NOT NULL,   -- SHA-256 of key fields for tamper detection
-  created_at       timestamptz NOT NULL DEFAULT now(),
-  UNIQUE(user_id, course_id)               -- one certificate per student per course
-);
-
-CREATE INDEX IF NOT EXISTS idx_certs_certificate_id ON public.certificates(certificate_id);
-CREATE INDEX IF NOT EXISTS idx_certs_user_id        ON public.certificates(user_id);
-CREATE INDEX IF NOT EXISTS idx_certs_course_id      ON public.certificates(course_id);
-
-
--- ============================================================
--- 4. RLS
--- Anyone can SELECT (public QR verification); only the owner inserts (via DEFINER fn)
--- ============================================================
-ALTER TABLE public.certificates ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "certs_public_select"
-  ON public.certificates FOR SELECT USING (true);
-
--- Direct inserts are blocked; only the SECURITY DEFINER function can write
-CREATE POLICY "certs_no_direct_insert"
-  ON public.certificates FOR INSERT TO authenticated
-  WITH CHECK (false);
-
-
--- ============================================================
--- 5. GENERATE OR RETRIEVE A CERTIFICATE (idempotent RPC)
--- Call: supabase.rpc('generate_certificate', { p_course_id: '...' })
--- Returns: JSONB with all certificate fields
--- ============================================================
 CREATE OR REPLACE FUNCTION public.generate_certificate(p_course_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
-SECURITY DEFINER SET search_path = ''
+SECURITY DEFINER SET search_path = public, auth, extensions
 AS $$
 DECLARE
   v_user_id      uuid;
@@ -108,8 +49,8 @@ BEGIN
              SELECT 1
                FROM public.user_progress up
               WHERE up.lesson_id = l.id
-                AND up.user_id   = v_user_id
-                AND up.completed = true
+                 AND up.user_id   = v_user_id
+                 AND up.completed = true
            )
   ) THEN
     RAISE EXCEPTION 'Course not yet fully completed';
@@ -123,6 +64,7 @@ BEGIN
     FROM public.mentor_students ms
     JOIN public.users u ON u.id = ms.mentor_id
    WHERE ms.student_id = v_user_id
+     AND ms.course_id = p_course_id
    ORDER BY ms.assigned_at
    LIMIT 1;
 
@@ -156,7 +98,6 @@ BEGIN
 
   -- ── SHA-256 tamper-detection hash ─────────────────────────
   -- Format: name|course|mentor|score|maxScore|date|certId
-  -- Anyone can recompute this with the same inputs to verify authenticity.
   v_hash_input :=
     v_student_name || '|' ||
     v_course_name  || '|' ||
@@ -166,6 +107,7 @@ BEGIN
     CURRENT_DATE::text || '|' ||
     v_cert_id;
 
+  -- Using digest from pgcrypto (in public or extensions)
   v_hash := encode(digest(v_hash_input, 'sha256'), 'hex');
 
   -- ── Insert (bypasses RLS via SECURITY DEFINER) ────────────
@@ -186,6 +128,5 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION public.generate_certificate IS
-  'Idempotent: generates and stores a certificate when a course is fully completed, or returns the existing one. SHA-256 hash enables tamper detection on the verify page.';
-
+-- Grant execution to authenticated users
+GRANT EXECUTE ON FUNCTION public.generate_certificate(uuid) TO authenticated;

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
@@ -17,7 +18,9 @@ import {
   EyeOff,
   Save,
   GraduationCap,
-  Loader2
+  Loader2,
+  ExternalLink,
+  Users,
 } from 'lucide-react';
 
 const BADGE_INFO = {
@@ -29,6 +32,7 @@ const BADGE_INFO = {
 
 const Profile = () => {
   const { user, updateUser } = useAuth();
+  const navigate = useNavigate();
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState(user?.name || '');
   const [avatarId, setAvatarId] = useState(user?.avatar_id || null);
@@ -108,82 +112,125 @@ const Profile = () => {
 
         <div className="grid lg:grid-cols-3 gap-8">
 
-          {/* Main Area: Progress & Badges */}
+          {/* Main Area: Progress & Badges — for students only */}
           <div className="lg:col-span-2 space-y-8">
 
-            {/* Certification Progress */}
-            <Card className="card-glass overflow-hidden" data-testid="cert-progress-card">
-              <div className="absolute top-0 right-0 p-8 opacity-5">
-                <GraduationCap className="w-32 h-32" />
-              </div>
-              <CardHeader>
-                <CardTitle className="text-foreground font-outfit flex items-center gap-2">
-                  <GraduationCap className="w-5 h-5 text-primary" />
-                  Certification Progress
-                </CardTitle>
-                <CardDescription className="text-muted-foreground">
-                  Earn {certificationTarget} points to become eligible for the ScriptArc Developer Certification.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="mb-2 flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground font-medium">Progress</span>
-                  <span className="text-foreground font-mono font-bold">
-                    {currentStars} / {certificationTarget} Points
-                  </span>
+            {user?.role === 'mentor' ? (
+              /* ── Mentor Portal Card ───────────────────────── */
+              <Card className="card-glass overflow-hidden" data-testid="mentor-portal-card">
+                <div className="absolute top-0 right-0 p-8 opacity-5">
+                  <Users className="w-32 h-32" />
                 </div>
-                <Progress value={certProgress} className="h-3 bg-muted/50 mb-4" />
-                {certProgress >= 100 ? (
-                  <div className="p-3 bg-accent/10 border border-accent/20 rounded-xl text-accent text-sm flex items-center gap-2">
-                    <Star className="w-4 h-4" />
-                    You are eligible for certification! Check your email for details.
-                  </div>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    Keep completing courses to earn points. {certificationTarget - currentStars} more points to go.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Badges Collection */}
-            <Card className="card-glass" data-testid="badges-section">
-              <CardHeader>
-                <CardTitle className="text-foreground font-outfit flex items-center gap-2">
-                  <Award className="w-5 h-5 text-secondary" />
-                  Skill Badges
-                </CardTitle>
-                <CardDescription className="text-muted-foreground">
-                  Achievements unlocked through your learning journey
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {user?.badges?.length > 0 ? (
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    {user.badges.map((badge) => {
-                      const info = BADGE_INFO[badge] || { name: badge, icon: '🏆', description: '', color: 'text-foreground' };
-                      return (
-                        <div
-                          key={badge}
-                          className="p-5 bg-surface-highlight border border-border/40 rounded-xl text-center hover:bg-surface-highlight/80 transition-colors"
-                        >
-                          <span className="text-4xl mb-3 block drop-shadow-md">{info.icon}</span>
-                          <h4 className={`font-medium text-sm ${info.color}`}>{info.name}</h4>
-                          <p className="text-xs text-muted-foreground mt-1">{info.description}</p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="text-center py-10 border border-dashed border-border/50 rounded-xl">
-                    <Award className="w-10 h-10 text-muted-foreground mx-auto mb-3 opacity-50" />
-                    <p className="text-muted-foreground text-sm">
-                      Complete challenges to earn skill recognition badges.
+                <CardHeader>
+                  <CardTitle className="text-foreground font-outfit flex items-center gap-2">
+                    <Users className="w-5 h-5 text-primary" />
+                    Mentor Dashboard
+                  </CardTitle>
+                  <CardDescription className="text-muted-foreground">
+                    Access your mentor portal to manage students, send messages, and track progress.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="p-4 bg-primary/5 border border-primary/20 rounded-xl">
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center">
+                        <Users className="w-4 h-4 text-primary" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-foreground">Mentor Code</p>
+                        <p className="text-xs text-primary font-mono">{user?.mentorProfile?.mentor_code || '—'}</p>
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Share your mentor code with students so they can connect you to their course.
                     </p>
                   </div>
-                )}
-              </CardContent>
-            </Card>
+                  <Button
+                    onClick={() => navigate('/mentor')}
+                    className="w-full btn-primary flex items-center gap-2"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    Go to Mentor Portal
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
+              <>
+                {/* Certification Progress — students only */}
+                <Card className="card-glass overflow-hidden" data-testid="cert-progress-card">
+                  <div className="absolute top-0 right-0 p-8 opacity-5">
+                    <GraduationCap className="w-32 h-32" />
+                  </div>
+                  <CardHeader>
+                    <CardTitle className="text-foreground font-outfit flex items-center gap-2">
+                      <GraduationCap className="w-5 h-5 text-primary" />
+                      Certification Progress
+                    </CardTitle>
+                    <CardDescription className="text-muted-foreground">
+                      Earn {certificationTarget} points to become eligible for the ScriptArc Developer Certification.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="mb-2 flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground font-medium">Progress</span>
+                      <span className="text-foreground font-mono font-bold">
+                        {currentStars} / {certificationTarget} Points
+                      </span>
+                    </div>
+                    <Progress value={certProgress} className="h-3 bg-muted/50 mb-4" />
+                    {certProgress >= 100 ? (
+                      <div className="p-3 bg-accent/10 border border-accent/20 rounded-xl text-accent text-sm flex items-center gap-2">
+                        <Star className="w-4 h-4" />
+                        You are eligible for certification! Check your email for details.
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        Keep completing courses to earn points. {certificationTarget - currentStars} more points to go.
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Badges Collection */}
+                <Card className="card-glass" data-testid="badges-section">
+                  <CardHeader>
+                    <CardTitle className="text-foreground font-outfit flex items-center gap-2">
+                      <Award className="w-5 h-5 text-secondary" />
+                      Skill Badges
+                    </CardTitle>
+                    <CardDescription className="text-muted-foreground">
+                      Achievements unlocked through your learning journey
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {user?.badges?.length > 0 ? (
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                        {user.badges.map((badge) => {
+                          const info = BADGE_INFO[badge] || { name: badge, icon: '🏆', description: '', color: 'text-foreground' };
+                          return (
+                            <div
+                              key={badge}
+                              className="p-5 bg-surface-highlight border border-border/40 rounded-xl text-center hover:bg-surface-highlight/80 transition-colors"
+                            >
+                              <span className="text-4xl mb-3 block drop-shadow-md">{info.icon}</span>
+                              <h4 className={`font-medium text-sm ${info.color}`}>{info.name}</h4>
+                              <p className="text-xs text-muted-foreground mt-1">{info.description}</p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="text-center py-10 border border-dashed border-border/50 rounded-xl">
+                        <Award className="w-10 h-10 text-muted-foreground mx-auto mb-3 opacity-50" />
+                        <p className="text-muted-foreground text-sm">
+                          Complete challenges to earn skill recognition badges.
+                        </p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </>
+            )}
           </div>
 
           {/* Settings Sidebar */}

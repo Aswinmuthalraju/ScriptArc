@@ -108,43 +108,87 @@ const CourseSingle = () => {
   };
 
   const handleAddMentor = async () => {
-    if (!mentorCode.trim()) {
+    const code = mentorCode.trim().toUpperCase();
+    if (!code) {
       toast.error('Please enter a Mentor ID');
       return;
     }
     setAssigningMentor(true);
     try {
-      // Find mentor profile
-      const { data: profile } = await supabase
+      // Look up the mentor profile.
+      // The mp_approved_select RLS policy (migration 010) lets any authenticated user
+      // read rows where status = 'approved', so students can resolve a mentor_code.
+      const { data: profile, error: lookupError } = await supabase
         .from('mentor_profiles')
-        .select('user_id, status')
-        .eq('mentor_code', mentorCode.trim().toUpperCase())
+        .select('user_id')
+        .eq('mentor_code', code)
+        .eq('status', 'approved')
         .maybeSingle();
 
-      if (!profile || profile.status !== 'approved') {
-        throw new Error('Invalid or unapproved mentor ID.');
+      if (lookupError) {
+        console.error('Mentor lookup error:', lookupError);
+        throw new Error(`Lookup failed: ${lookupError.message}`);
       }
 
-      // Assign to student
-      const { error } = await supabase.from('mentor_students').insert({
+      if (!profile) {
+        throw new Error('Mentor code not found or mentor is not yet approved.');
+      }
+
+      // Verify this mentor has registered to mentor THIS course (migration 011).
+      const { data: courseLink, error: courseErr } = await supabase
+        .from('mentor_courses')
+        .select('id')
+        .eq('mentor_id', profile.user_id)
+        .eq('course_id', id)
+        .maybeSingle();
+
+      if (courseErr) {
+        console.error('Course link check error:', courseErr);
+        throw new Error(`Verification failed: ${courseErr.message}`);
+      }
+
+      if (!courseLink) {
+        throw new Error('This mentor does not mentor this course. Ask them to add this course from their Mentor Dashboard.');
+      }
+
+      // Insert the student → mentor assignment.
+      const { error: insertError } = await supabase.from('mentor_students').insert({
         mentor_id: profile.user_id,
-        student_id: user?.id,
+        student_id: user.id,
         course_id: id,
       });
 
-      if (error) {
-        if (error.code === '23505') throw new Error('You are already assigned to this mentor.');
-        throw error;
+      if (insertError) {
+        console.error('Mentor assign error:', insertError);
+        if (insertError.code === '23505') throw new Error('You are already assigned to this mentor.');
+        throw new Error(`Assignment failed: ${insertError.message}`);
       }
 
-      toast.success('Course Mentor assigned successfully!');
+      toast.success('Mentor assigned successfully!');
       setShowMentorDialog(false);
       setMentorCode('');
-      fetchCourseData(); // Reload to get mentor name
+      fetchCourseData();
     } catch (err) {
-      toast.error(err.message || 'Failed to assign mentor. Please check the code and try again.');
+      toast.error(err.message || 'Failed to assign mentor. Please try again.');
     } finally {
       setAssigningMentor(false);
+    }
+  };
+
+  const handleRemoveMentor = async () => {
+    if (!window.confirm("Are you sure you want to remove your assigned mentor for this course?")) return;
+    try {
+      const { error } = await supabase
+        .from('mentor_students')
+        .delete()
+        .eq('student_id', user.id)
+        .eq('course_id', id);
+
+      if (error) throw error;
+      toast.success('Mentor removed successfully.');
+      setAssignedMentor(null);
+    } catch (err) {
+      toast.error(err.message || 'Failed to remove mentor. Please try again.');
     }
   };
 
@@ -160,14 +204,14 @@ const CourseSingle = () => {
       const dateStr = dateObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 
       const params = new URLSearchParams({
-        name:     data.student_name,
-        course:   data.course_name,
-        mentor:   data.mentor_name,
-        score:    data.score,
+        name: data.student_name,
+        course: data.course_name,
+        mentor: data.mentor_name,
+        score: data.score,
         maxScore: data.max_score,
-        stars:    data.star_rating,
-        date:     dateStr,
-        certId:   data.certificate_id,
+        stars: data.star_rating,
+        date: dateStr,
+        certId: data.certificate_id,
       });
 
       window.open(`/certificate/editor.html?${params.toString()}`, '_blank');
@@ -543,9 +587,12 @@ const CourseSingle = () => {
                   <>
                     <h3 className="text-base font-outfit font-semibold text-foreground mb-1">Assigned Mentor</h3>
                     <p className="text-sm text-primary mb-2 font-medium">{assignedMentor}</p>
-                    <Badge variant="outline" className="border-secondary/40 text-secondary bg-secondary/10">
+                    <Badge variant="outline" className="border-secondary/40 text-secondary bg-secondary/10 mb-4 block w-fit mx-auto">
                       Actively Reviewing
                     </Badge>
+                    <Button onClick={handleRemoveMentor} variant="outline" className="w-full text-xs text-destructive border-destructive/30 hover:bg-destructive/10 hover:text-destructive">
+                      Remove Mentor
+                    </Button>
                   </>
                 ) : (
                   <>
