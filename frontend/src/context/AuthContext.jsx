@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import { ADMIN_EMAIL } from '@/lib/constants';
 
 const AuthContext = createContext(null);
 
@@ -17,6 +18,8 @@ const buildUserFromSession = (authUser) => ({
   total_stars: 0,
   avatar_url: authUser.user_metadata?.avatar_url || null,
   has_special_access: false,
+  isAdmin: authUser.email?.toLowerCase() === ADMIN_EMAIL,
+  mentorProfile: null,
 });
 
 export const AuthProvider = ({ children }) => {
@@ -39,11 +42,25 @@ export const AuthProvider = ({ children }) => {
           .eq('id', sessionUser.id)
           .single();
 
-        if (!error && data) {
-          setUser({ ...buildUserFromSession(sessionUser), ...data });
-        } else {
-          setUser(buildUserFromSession(sessionUser));
+        const base = buildUserFromSession(sessionUser);
+        const profile = (!error && data) ? { ...base, ...data } : base;
+
+        // For mentors, also fetch their application status + mentor_code
+        let mentorProfile = null;
+        if (profile.role === 'mentor') {
+          const { data: mp } = await supabase
+            .from('mentor_profiles')
+            .select('id, mentor_code, status, expertise, experience_years, bio, rejection_reason, approved_at')
+            .eq('user_id', sessionUser.id)
+            .maybeSingle();
+          mentorProfile = mp || null;
         }
+
+        setUser({
+          ...profile,
+          isAdmin: sessionUser.email?.toLowerCase() === ADMIN_EMAIL,
+          mentorProfile,
+        });
       } catch (err) {
         setUser(buildUserFromSession(sessionUser));
       } finally {

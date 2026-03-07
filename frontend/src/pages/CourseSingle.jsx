@@ -6,6 +6,9 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import {
   Accordion,
@@ -15,7 +18,7 @@ import {
 } from '@/components/ui/accordion';
 import {
   Play, Clock, Star, Code2, ChevronRight, CheckCircle,
-  Lock, Award, Loader2, ArrowLeft, Trophy, GraduationCap, Target
+  Lock, Award, Loader2, ArrowLeft, Trophy, GraduationCap, Target, Users
 } from 'lucide-react';
 
 const levelColors = {
@@ -35,6 +38,12 @@ const CourseSingle = () => {
   const [loading, setLoading] = useState(true);
   const [showCompletion, setShowCompletion] = useState(false);
   const [computedMaxPoints, setComputedMaxPoints] = useState(0);
+  const [certLoading, setCertLoading] = useState(false);
+
+  const [assignedMentor, setAssignedMentor] = useState(null);
+  const [showMentorDialog, setShowMentorDialog] = useState(false);
+  const [mentorCode, setMentorCode] = useState('');
+  const [assigningMentor, setAssigningMentor] = useState(false);
 
   useEffect(() => { fetchCourseData(); }, [id, user]); // eslint-disable-line
 
@@ -70,6 +79,23 @@ const CourseSingle = () => {
         }
       }
 
+      if (user) {
+        const { data: mentorLink } = await supabase
+          .from('mentor_students')
+          .select('mentor_id')
+          .eq('student_id', user.id)
+          .eq('course_id', id)
+          .maybeSingle();
+        if (mentorLink) {
+          const { data: mentorUser } = await supabase
+            .from('users')
+            .select('name')
+            .eq('id', mentorLink.mentor_id)
+            .maybeSingle();
+          if (mentorUser) setAssignedMentor(mentorUser.name);
+        }
+      }
+
       setCourse(courseData);
       setLessons(lessonData);
       setProgress(progressMap);
@@ -79,6 +105,77 @@ const CourseSingle = () => {
       }
     } catch { /* ignore */ }
     finally { setLoading(false); }
+  };
+
+  const handleAddMentor = async () => {
+    if (!mentorCode.trim()) {
+      toast.error('Please enter a Mentor ID');
+      return;
+    }
+    setAssigningMentor(true);
+    try {
+      // Find mentor profile
+      const { data: profile } = await supabase
+        .from('mentor_profiles')
+        .select('user_id, status')
+        .eq('mentor_code', mentorCode.trim().toUpperCase())
+        .maybeSingle();
+
+      if (!profile || profile.status !== 'approved') {
+        throw new Error('Invalid or unapproved mentor ID.');
+      }
+
+      // Assign to student
+      const { error } = await supabase.from('mentor_students').insert({
+        mentor_id: profile.user_id,
+        student_id: user?.id,
+        course_id: id,
+      });
+
+      if (error) {
+        if (error.code === '23505') throw new Error('You are already assigned to this mentor.');
+        throw error;
+      }
+
+      toast.success('Course Mentor assigned successfully!');
+      setShowMentorDialog(false);
+      setMentorCode('');
+      fetchCourseData(); // Reload to get mentor name
+    } catch (err) {
+      toast.error(err.message || 'Failed to assign mentor. Please check the code and try again.');
+    } finally {
+      setAssigningMentor(false);
+    }
+  };
+
+  const handleGenerateCertificate = async () => {
+    if (!user) return;
+    setCertLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('generate_certificate', { p_course_id: id });
+      if (error) throw error;
+
+      // Build date string matching what the verify page expects (YYYY-MM-DD → readable)
+      const dateObj = new Date(data.completion_date);
+      const dateStr = dateObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+
+      const params = new URLSearchParams({
+        name:     data.student_name,
+        course:   data.course_name,
+        mentor:   data.mentor_name,
+        score:    data.score,
+        maxScore: data.max_score,
+        stars:    data.star_rating,
+        date:     dateStr,
+        certId:   data.certificate_id,
+      });
+
+      window.open(`/certificate/editor.html?${params.toString()}`, '_blank');
+    } catch (err) {
+      toast.error(err.message || 'Failed to generate certificate. Please try again.');
+    } finally {
+      setCertLoading(false);
+    }
   };
 
   // A lesson is locked if the previous one is not completed
@@ -153,7 +250,7 @@ const CourseSingle = () => {
           <div className="mb-8 p-6 rounded-2xl bg-gradient-to-r from-accent/20 via-primary/10 to-warning/20 border border-accent/30 text-center"
             data-testid="completion-banner">
             <Trophy className="w-12 h-12 text-warning mx-auto mb-3" />
-            <h2 className="text-2xl font-outfit font-bold text-foreground mb-1">🎉 Course Completed!</h2>
+            <h2 className="text-2xl font-outfit font-bold text-foreground mb-1">Course Completed!</h2>
             <p className="text-text-secondary mb-4">You've mastered {course.title}</p>
             <p className="text-sm text-text-secondary mb-2">Points Earned: {totalPoints} / {maxPoints}</p>
             <div className="flex items-center justify-center gap-1 mb-4">
@@ -162,9 +259,17 @@ const CourseSingle = () => {
               ))}
               <span className="text-lg font-bold text-warning ml-2">({courseStars} Stars Awarded)</span>
             </div>
-            <Button className="btn-primary" data-testid="certificate-btn">
-              <GraduationCap className="w-4 h-4 mr-2" />
-              Generate Certificate
+            <Button
+              className="btn-primary"
+              onClick={handleGenerateCertificate}
+              disabled={certLoading}
+              data-testid="certificate-btn"
+            >
+              {certLoading
+                ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                : <GraduationCap className="w-4 h-4 mr-2" />
+              }
+              {certLoading ? 'Generating…' : 'Download Certificate'}
             </Button>
           </div>
         )}
@@ -430,6 +535,32 @@ const CourseSingle = () => {
               </CardContent>
             </Card>
 
+            {/* Mentor Card */}
+            <Card className="card-glass">
+              <CardContent className="p-6 text-center">
+                <Users className="w-8 h-8 text-secondary mx-auto mb-3" />
+                {assignedMentor ? (
+                  <>
+                    <h3 className="text-base font-outfit font-semibold text-foreground mb-1">Assigned Mentor</h3>
+                    <p className="text-sm text-primary mb-2 font-medium">{assignedMentor}</p>
+                    <Badge variant="outline" className="border-secondary/40 text-secondary bg-secondary/10">
+                      Actively Reviewing
+                    </Badge>
+                  </>
+                ) : (
+                  <>
+                    <h3 className="text-base font-outfit font-semibold text-foreground mb-1">Need Guidance?</h3>
+                    <p className="text-xs text-text-secondary mb-4">
+                      Add a mentor to get personalized feedback on your coding challenges.
+                    </p>
+                    <Button onClick={() => setShowMentorDialog(true)} variant="outline" className="w-full text-xs hover:border-primary/50 hover:bg-primary/5">
+                      Enter Mentor ID
+                    </Button>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+
             {/* What you'll learn */}
             <Card className="card-glass">
               <CardHeader>
@@ -447,6 +578,32 @@ const CourseSingle = () => {
           </div>
         </div>
       </div>
+
+      {/* Add Mentor Dialog */}
+      <Dialog open={showMentorDialog} onOpenChange={setShowMentorDialog}>
+        <DialogContent className="bg-surface border-border max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-foreground">Assign Mentor to Course</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="space-y-2">
+              <Label className="text-text-secondary text-xs">Mentor ID (e.g. MNTR-1234)</Label>
+              <Input
+                placeholder="Enter Mentor Code"
+                value={mentorCode}
+                onChange={(e) => setMentorCode(e.target.value)}
+                className="input-dark uppercase"
+              />
+            </div>
+            <div className="flex gap-3 justify-end pt-2">
+              <Button variant="outline" onClick={() => setShowMentorDialog(false)} className="border-border">Cancel</Button>
+              <Button onClick={handleAddMentor} disabled={assigningMentor} className="btn-primary">
+                {assigningMentor ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Assign'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

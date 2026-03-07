@@ -1,0 +1,1906 @@
+Unit 1 – Continuous
+
+🎬 Lecture 6 – NumPy Array Attributes
+MCQs with Timestamp Placement
+________________________________________
+⏱️ MCQ 1 Placement
+📍 After: 00:00:03
+🧠 Question 1
+Which NumPy attribute is used to find the number of dimensions of an array?
+A) size
+B) shape
+C) ndim
+D) dtype
+✅ Correct Answer: C
+Explanation:
+ndim returns the number of dimensions of a NumPy array.
+________________________________________
+⏱️ MCQ 2 Placement
+📍 After: 00:00:40
+🧠 Question 2
+Which attribute returns the total number of elements in a NumPy array?
+A) shape
+B) size
+C) dtype
+D) ndim
+✅ Correct Answer: B
+Explanation:
+size gives the total number of elements present in the array.
+________________________________________
+⏱️ MCQ 3 Placement
+📍 After: 00:01:00
+🧠 Question 3
+What does the shape attribute return in a NumPy array?
+A) Total elements
+B) Number of dimensions
+C) Structure of rows and columns
+D) Data type of elements
+✅ Correct Answer: C
+Explanation:
+shape returns the dimensions of the array (rows, columns, etc.).
+________________________________________
+⏱️ MCQ 4 Placement
+📍 After: 00:01:15
+🧠 Question 4
+What is the default integer data type returned by NumPy when dtype is not specified?
+A) int32
+B) int16
+C) int64
+D) float64
+✅ Correct Answer: C
+Explanation:
+If dtype is not specified, NumPy usually uses int64 by default.
+________________________________________
+⏱️ MCQ 5 Placement
+📍 After: 00:01:36
+🧠 Question 5
+What does the itemsize attribute represent in a NumPy array?
+A) Total memory of the array
+B) Size of each element in bytes
+C) Number of elements in array
+D) Number of rows
+✅ Correct Answer: B
+Explanation:
+itemsize returns the memory size of each element in bytes.
+________________________________________
+⏱️ MCQ 6 Placement
+📍 After: 00:01:36
+🧠 Question 6
+If an array uses int64, what will be the size of each element?
+A) 2 bytes
+B) 4 bytes
+C) 8 bytes
+D) 16 bytes
+✅ Correct Answer: C
+Explanation:
+int64 -> 64 bits = 8 bytes
+________________________________________
+🎯 MCQ Placement Summary
+MCQ	Timestamp	Topic
+Q1	00:00:03	ndim
+Q2	00:00:40	size
+Q3	~00:01:00	shape
+Q4	~00:01:15	dtype
+Q5	00:01:36	itemsize
+Q6	00:01:36	int64 vs int32
+________________________________________
+💻 Coding Question (Fill in the Blanks)
+⏸️ Task
+Complete the code to find dimension, size, and shape of a NumPy array.
+import numpy as np
+
+arr = np.array([10,20,30])
+
+print("Dimension:", arr._____)
+print("Total Elements:", arr._____)
+print("Shape:", arr._____)
+________________________________________
+🧩 Blanks
+1️⃣ _____
+2️⃣ _____
+3️⃣ _____
+________________________________________
+✅ Solution
+import numpy as np
+
+arr = np.array([10,20,30])
+
+print("Dimension:", arr.ndim)
+print("Total Elements:", arr.size)
+print("Shape:", arr.shape)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+🎬 Lecture 7 – NumPy Array Operations
+MCQs with Timestamp Placement
+________________________________________
+⏱️ MCQ 1 Placement
+📍 After: 00:00:56
+🧠 Question 1
+Which NumPy function is used to join two arrays along a specified axis?
+A) np.join()
+B) np.concatenate()
+C) np.append()
+D) np.combine()
+✅ Correct Answer: B
+Explanation:
+np.concatenate() joins arrays along a specified axis.
+________________________________________
+⏱️ MCQ 2 Placement
+📍 After: 00:01:44
+🧠 Question 2
+What happens when axis = 0 is used in np.concatenate()?
+A) Horizontal stacking
+B) Vertical stacking
+C) Diagonal stacking
+D) Array splitting
+✅ Correct Answer: B
+Explanation:
+axis = 0 joins arrays vertically (row-wise).
+________________________________________
+⏱️ MCQ 3 Placement
+📍 After: 00:02:29
+🧠 Question 3
+Which NumPy function is specifically used for horizontal stacking of arrays?
+A) np.vstack()
+B) np.concatenate()
+C) np.hstack()
+D) np.split()
+✅ Correct Answer: C
+Explanation:
+np.hstack() joins arrays horizontally (column-wise).
+________________________________________
+⏱️ MCQ 4 Placement
+📍 After: 00:03:47
+🧠 Question 4
+What is the limitation of the np.split() function?
+A) It works only on 2D arrays
+B) It can split arrays only into equal parts
+C) It cannot split arrays
+D) It only works on strings
+✅ Correct Answer: B
+Explanation:
+np.split() can divide arrays only into equal-sized subarrays.
+________________________________________
+⏱️ MCQ 5 Placement
+📍 After: 00:05:14
+🧠 Question 5
+Which NumPy function allows splitting arrays even if they cannot be divided equally?
+A) np.divide()
+B) np.array_split()
+C) np.break()
+D) np.cut()
+✅ Correct Answer: B
+Explanation:
+np.array_split() can divide arrays even when equal division is not possible.
+________________________________________
+⏱️ MCQ 6 Placement
+📍 After: 00:08:10
+🧠 Question 6
+Which function is used to find the index of elements satisfying a condition in NumPy?
+A) np.search()
+B) np.where()
+C) np.find()
+D) np.locate()
+✅ Correct Answer: B
+Explanation:
+np.where() returns the indices of elements that satisfy a condition.
+________________________________________
+⏱️ MCQ 7 Placement
+📍 After: 00:10:13
+🧠 Question 7
+What does np.sort() do by default?
+A) Sorts columns
+B) Sorts rows
+C) Sorts diagonally
+D) Randomizes the array
+✅ Correct Answer: B
+Explanation:
+By default, np.sort() sorts along the last axis (row-wise for 2D arrays).
+________________________________________
+🎯 MCQ Placement Summary
+MCQ	Timestamp	Topic
+Q1	00:00:56	np.concatenate()
+Q2	00:01:44	axis=0 vertical stacking
+Q3	00:02:29	np.hstack()
+Q4	00:03:47	np.split() limitation
+Q5	00:05:14	np.array_split()
+Q6	00:08:10	np.where()
+Q7	00:10:13	np.sort()
+________________________________________
+💻 Coding Question (Fill in the Blanks)
+⏸️ Task
+Complete the code to join two arrays horizontally using NumPy.
+import numpy as np
+
+arr1 = np.array([[1,2,3]])
+arr2 = np.array([[4,5,6]])
+
+result = np._____(arr1, arr2)
+
+print(result)
+________________________________________
+🧩 Blanks
+1️⃣ _____
+________________________________________
+✅ Solution
+import numpy as np
+
+arr1 = np.array([[1,2,3]])
+arr2 = np.array([[4,5,6]])
+
+result = np.hstack((arr1, arr2))
+
+print(result)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+🎬 Lecture 8 – Joining, Splitting, Searching, and Sorting Arrays
+MCQs with Timestamp Placement
+________________________________________
+⏱️ MCQ 1 Placement
+📍 After: 00:00:44
+🧠 Question 1
+What is array indexing in NumPy used for?
+A) Sorting array elements
+B) Accessing elements using their position
+C) Deleting elements from arrays
+D) Creating arrays
+✅ Correct Answer: B
+Explanation:
+Indexing allows us to access elements in an array using their position.
+________________________________________
+⏱️ MCQ 2 Placement
+📍 After: 00:01:15
+🧠 Question 2
+At what index does NumPy array indexing start?
+A) -1
+B) 1
+C) 0
+D) 2
+✅ Correct Answer: C
+Explanation:
+Array indexing in Python starts from 0.
+________________________________________
+⏱️ MCQ 3 Placement
+📍 After: 00:02:44
+🧠 Question 3
+What does the negative index -1 represent in an array?
+A) First element
+B) Last element
+C) Middle element
+D) Second element
+✅ Correct Answer: B
+Explanation:
+Negative indexing counts from the end of the array, so -1 refers to the last element.
+________________________________________
+⏱️ MCQ 4 Placement
+📍 After: 00:03:59
+🧠 Question 4
+In a 2D NumPy array, what does array[1, :] represent?
+A) First column
+B) Second row
+C) Second column
+D) Entire array
+✅ Correct Answer: B
+Explanation:
+array[1, :] selects row index 1 (second row) and all columns.
+________________________________________
+⏱️ MCQ 5 Placement
+📍 After: 00:06:21
+🧠 Question 5
+In array slicing syntax array[start:stop:step], what does the stop index represent?
+A) Inclusive value
+B) Exclusive value
+C) Always zero
+D) Optional only for strings
+✅ Correct Answer: B
+Explanation:
+The stop index is exclusive, meaning that element is not included.
+________________________________________
+⏱️ MCQ 6 Placement
+📍 After: 00:08:50
+🧠 Question 6
+What does the slicing expression array[3:] return?
+A) Elements from index 0 to 3
+B) Elements from index 3 to the end
+C) Only element at index 3
+D) Reverse array
+✅ Correct Answer: B
+Explanation:
+array[3:] returns all elements starting from index 3 to the end.
+________________________________________
+⏱️ MCQ 7 Placement
+📍 After: 00:11:52
+🧠 Question 7
+Which loop is commonly used to iterate through elements of a NumPy array?
+A) while loop
+B) for loop
+C) do-while loop
+D) switch loop
+✅ Correct Answer: B
+Explanation:
+A for loop is typically used to iterate through array elements.
+________________________________________
+🎯 MCQ Placement Summary
+MCQ	Timestamp	Topic
+Q1	00:00:44	Array indexing concept
+Q2	00:01:15	Index starts from 0
+Q3	00:02:44	Negative indexing
+Q4	00:03:59	2D indexing
+Q5	00:06:21	Slicing syntax
+Q6	00:08:50	Partial slicing
+Q7	00:11:52	Iterating arrays
+________________________________________
+💻 Coding Question (Fill in the Blanks)
+⏸️ Task
+Complete the code to print elements from index 2 to index 5 using slicing.
+import numpy as np
+
+arr = np.array([1,3,5,7,9,11])
+
+result = arr[_____:_____]
+
+print(result)
+________________________________________
+🧩 Blanks
+1️⃣ _____
+2️⃣ _____
+________________________________________
+✅ Solution
+import numpy as np
+
+arr = np.array([1,3,5,7,9,11])
+
+result = arr[2:6]
+
+print(result)
+________________________________________
+📌 Concepts Covered
+This coding question checks:
+•	NumPy array slicing
+•	start:stop
+•	exclusive stop index
+
+
+
+
+
+
+
+
+🎬 Lecture 9 - Array Indexing, Slicing, and Iterating
+MCQs with Timestamp Placement
+________________________________________
+⏱️ MCQ 1 Placement
+📍 After: 00:01:01
+🧠 Question 1
+In NumPy arrays, indexing starts from which value?
+A) 1
+B) -1
+C) 0
+D) Depends on array size
+✅ Correct Answer: C
+Explanation:
+NumPy arrays follow zero-based indexing, meaning the first element has index 0.
+________________________________________
+⏱️ MCQ 2 Placement
+📍 After: 01:22
+🧠 Question 2
+Which of the following represents negative indexing in Python arrays?
+A) 0,1,2,3
+B) 1,2,3,4
+C) -1,-2,-3,-4
+D) A,B,C,D
+✅ Correct Answer: C
+Explanation:
+Negative indexing accesses elements from the end of the array, where -1 refers to the last element.
+________________________________________
+⏱️ MCQ 3 Placement
+📍 After: 02:11
+🧠 Question 3
+Given the array:
+arr = [1,3,5,7,9]
+What will be the output of:
+arr[[0,2,4]]
+A) 1,3,5
+B) 1,5,9
+C) 3,7,9
+D) 5,7,9
+✅ Correct Answer: B
+Explanation:
+Index 0,2,4 correspond to values 1,5,9.
+________________________________________
+⏱️ MCQ 4 Placement
+📍 After: 03:17
+🧠 Question 4
+In the command:
+array[1, :]
+What does : represent?
+A) Select all rows
+B) Select all columns
+C) Skip values
+D) Reverse array
+✅ Correct Answer: B
+Explanation:
+: selects all columns of the specified row.
+________________________________________
+⏱️ MCQ 5 Placement
+📍 After: 04:38
+🧠 Question 5
+In 3D array indexing, the first index represents:
+A) Column
+B) Slice
+C) Row
+D) Dimension size
+✅ Correct Answer: B
+Explanation:
+For 3D arrays: array[slice, row, column]
+________________________________________
+⏱️ MCQ 6 Placement
+📍 After: 06:27
+🧠 Question 6
+What does array slicing allow you to do?
+A) Delete array elements
+B) Access part of an array
+C) Reverse arrays
+D) Merge arrays
+✅ Correct Answer: B
+Explanation:
+Slicing extracts a subset of elements from an array.
+________________________________________
+⏱️ MCQ 7 Placement
+📍 After: 07:05
+🧠 Question 7
+In Python slicing syntax:
+array[start : stop : step]
+What does stop represent?
+A) Included index
+B) Exclusive index
+C) Last element always
+D) Step size
+✅ Correct Answer: B
+Explanation:
+The stop index is exclusive, meaning that element is not included.
+________________________________________
+⏱️ MCQ 8 Placement
+📍 After: 11:52
+🧠 Question 8
+Which loop is commonly used to iterate through array elements?
+A) while loop
+B) for loop
+C) do-while loop
+D) switch loop
+✅ Correct Answer: B
+Explanation:
+for x in array: is the standard method to iterate through NumPy arrays.
+________________________________________
+🎯 Coding Fill-in-the-Blanks Question
+📍 Best placement: After 02:33 (after explaining indexing example)
+________________________________________
+💻 Coding Question (Fill in the Blanks)
+⏸️ Task
+Complete the code to print the element at index 2 of a NumPy array.
+import numpy as np
+
+arr = np.array([10,20,30,40,50])
+
+print(arr[_____])
+________________________________________
+🧩 Blank
+1️⃣ _____
+________________________________________
+✅ Solution
+import numpy as np
+
+arr = np.array([10,20,30,40,50])
+
+print(arr[2])
+________________________________________
+📊 Concepts Covered in This Coding Question
+•	NumPy array creation
+•	Array indexing
+•	Zero-based indexing
+________________________________________
+📌 Final Question Distribution
+Type	Count
+MCQs	8
+Coding	1
+Total Questions	9
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+🎬 Lecture 10 – Copying Arrays, Shape Manipulation, and Identity Functions
+
+MCQs with Timestamp Placement
+________________________________________
+⏱️ MCQ 1 Placement
+📍 After: 00:00:54
+🧠 Question 1
+What does the array.copy() method do in NumPy?
+A) Deletes the original array
+B) Creates a reference to the same array
+C) Creates a new independent copy of the array
+D) Sorts the array
+✅ Correct Answer: C
+Explanation:
+copy() creates a new array independent of the original, so changes in the copy do not affect the original array.
+________________________________________
+⏱️ MCQ 2 Placement
+📍 After: 00:02:07
+🧠 Question 2
+Which NumPy function is used to change the shape of an array without changing its data?
+A) reshape()
+B) resize()
+C) split()
+D) concatenate()
+✅ Correct Answer: A
+Explanation:
+reshape() changes the dimensions of the array while keeping the same data.
+________________________________________
+⏱️ MCQ 3 Placement
+📍 After: 00:02:53
+🧠 Question 3
+What does reshape(-1) do in NumPy?
+A) Deletes the array
+B) Flattens the array into one dimension
+C) Converts array into matrix
+D) Splits the array
+✅ Correct Answer: B
+Explanation:
+reshape(-1) converts a multi-dimensional array into a 1D array.
+________________________________________
+⏱️ MCQ 4 Placement
+📍 After: 00:03:30
+🧠 Question 4
+Which function creates an identity matrix in NumPy?
+A) np.matrix()
+B) np.identity()
+C) np.diagonal()
+D) np.ones()
+✅ Correct Answer: B
+Explanation:
+np.identity() creates a square matrix with 1s on the diagonal and 0s elsewhere.
+________________________________________
+⏱️ MCQ 5 Placement
+📍 After: 00:04:45
+🧠 Question 5
+What is the default data type of values created using np.identity()?
+A) Integer
+B) Float
+C) Boolean
+D) String
+✅ Correct Answer: B
+Explanation:
+If dtype is not specified, NumPy uses float values by default.
+________________________________________
+⏱️ MCQ 6 Placement
+📍 After: 00:05:25
+🧠 Question 6
+What is the purpose of the k parameter in the np.eye() function?
+A) Controls array size
+B) Sets the diagonal offset
+C) Defines array datatype
+D) Sorts diagonal values
+✅ Correct Answer: B
+Explanation:
+k shifts the diagonal position above or below the main diagonal.
+________________________________________
+⏱️ MCQ 7 Placement
+📍 After: 00:07:32
+🧠 Question 7
+What is the key difference between np.identity() and np.eye()?
+A) np.eye() only creates square matrices
+B) np.identity() supports rectangular matrices
+C) np.eye() can create rectangular matrices and diagonal offsets
+D) Both are identical
+✅ Correct Answer: C
+Explanation:
+np.eye() is more flexible, allowing rectangular matrices and diagonal offsets.
+________________________________________
+🎯 MCQ Placement Summary
+MCQ	Timestamp	Topic
+Q1	00:00:54	copy()
+Q2	00:02:07	reshape()
+Q3	00:02:53	flatten / reshape(-1)
+Q4	00:03:30	np.identity()
+Q5	00:04:45	default dtype
+Q6	00:05:25	np.eye() parameter k
+Q7	00:07:32	identity vs eye
+________________________________________
+💻 Coding Question (Fill in the Blanks)
+⏸️ Task
+Complete the code to reshape a 1D array into a 3x4 matrix.
+import numpy as np
+
+arr = np.array(range(1,13))
+
+new_arr = arr._____(_____,_____)
+
+print(new_arr)
+________________________________________
+🧩 Blanks
+1️⃣ _____
+2️⃣ _____
+3️⃣ _____
+________________________________________
+✅ Solution
+import numpy as np
+
+arr = np.array(range(1,13))
+
+new_arr = arr.reshape(3,4)
+
+print(new_arr)
+________________________________________
+📌 Concepts Covered
+This coding question checks:
+•	NumPy reshape
+•	array dimension manipulation
+•	converting 1D to 2D array
+
+
+
+
+
+🎬 Lecture 11 - Exploring Data using Series and Data Frames
+MCQs with Timestamp Placement
+________________________________________
+⏱️ MCQ 1 Placement
+📍 After: 00:00:46
+🧠 Question 1
+What is a Pandas Series?
+A) A two-dimensional table
+B) A one-dimensional labeled array
+C) A matrix with rows and columns
+D) A NumPy sorting function
+✅ Correct Answer: B
+Explanation:
+A Pandas Series is a 1-dimensional labeled array capable of holding different data types.
+________________________________________
+⏱️ MCQ 2 Placement
+📍 After: 00:01:23
+🧠 Question 2
+Which of the following operations can be performed on both Series and DataFrames?
+A) Vectorized operations
+B) Indexing
+C) Aggregation functions
+D) All of the above
+✅ Correct Answer: D
+Explanation:
+Both Series and DataFrames support indexing, vectorized operations, aggregation, and missing value handling.
+________________________________________
+⏱️ MCQ 3 Placement
+📍 After: 00:02:02
+🧠 Question 3
+Which command is used to create a Series from a list in Pandas?
+A) pd.array()
+B) pd.Series()
+C) pd.DataFrame()
+D) pd.list()
+✅ Correct Answer: B
+Explanation:
+pd.Series() creates a Series from lists, dictionaries, or arrays.
+________________________________________
+⏱️ MCQ 4 Placement
+📍 After: 00:04:06
+🧠 Question 4
+What must be true for vectorized operations between two Series?
+A) Same data values
+B) Same array size
+C) Same datatype
+D) Same column name
+✅ Correct Answer: B
+Explanation:
+Vectorized operations require Series of the same size for element-wise calculations.
+________________________________________
+⏱️ MCQ 5 Placement
+📍 After: 00:06:12
+🧠 Question 5
+Which Pandas function is used to check missing values in a Series?
+A) checknull()
+B) isna()
+C) findnull()
+D) missing()
+✅ Correct Answer: B
+Explanation:
+isna() returns True for missing values and False otherwise.
+________________________________________
+⏱️ MCQ 6 Placement
+📍 After: 00:08:18
+🧠 Question 6
+Which function is used to replace missing values in a Series?
+A) replace()
+B) fillna()
+C) update()
+D) addna()
+✅ Correct Answer: B
+Explanation:
+fillna() replaces missing values with specified values.
+________________________________________
+⏱️ MCQ 7 Placement
+📍 After: 00:11:42
+🧠 Question 7
+What does df.loc[] represent in a DataFrame?
+A) Position-based indexing
+B) Label-based indexing
+C) Sorting function
+D) Aggregation method
+✅ Correct Answer: B
+Explanation:
+loc[] accesses rows and columns using labels.
+________________________________________
+⏱️ MCQ 8 Placement
+📍 After: 00:12:27
+🧠 Question 8
+Which DataFrame function is used for position-based indexing?
+A) df.loc[]
+B) df.iloc[]
+C) df.index()
+D) df.access()
+✅ Correct Answer: B
+Explanation:
+iloc[] is used for integer-position based indexing.
+________________________________________
+🎯 MCQ Placement Summary
+MCQ	Timestamp	Topic
+Q1	00:00:46	Series definition
+Q2	00:01:23	Series/DataFrame features
+Q3	00:02:02	pd.Series()
+Q4	00:04:06	Vectorized operations
+Q5	00:06:12	isna()
+Q6	00:08:18	fillna()
+Q7	00:11:42	loc[]
+Q8	00:12:27	iloc[]
+________________________________________
+💻 Coding Question (Fill in the Blanks)
+⏸️ Task
+Complete the code to create a Pandas Series and print the first element.
+import pandas as pd
+
+data = [10,20,30,40]
+
+s = pd._____(data)
+
+print(s[_____])
+________________________________________
+🧩 Blanks
+1️⃣ _____
+2️⃣ _____
+________________________________________
+✅ Solution
+import pandas as pd
+
+data = [10,20,30,40]
+
+s = pd.Series(data)
+
+print(s[0])
+________________________________________
+📌 Concepts Covered
+This coding question checks:
+•	Pandas Series creation
+•	Indexing in Series
+•	pd.Series()
+
+
+
+
+
+
+🎬 Unit 2.1 – Handling Large Volumes of Data
+________________________________________
+⏱️ MCQ 1 Placement
+📍 After: 00:00:57
+🧠 Question 1
+What is the primary challenge when dealing with large volumes of data in data science?
+A) Lack of programming languages
+B) Difficulty in visualizing data
+C) Limited memory and computational resources
+D) Lack of internet connectivity
+✅ Correct Answer: C
+Explanation:
+Handling large datasets often leads to memory overload, CPU limitations, and slower processing speeds.
+________________________________________
+⏱️ MCQ 2 Placement
+📍 After: 00:02:24
+🧠 Question 2
+What happens when the computer tries to load more data into RAM than its capacity?
+A) The computer deletes the data
+B) The operating system swaps data from RAM to disk
+C) The CPU stops functioning
+D) The algorithm automatically compresses the data
+✅ Correct Answer: B
+Explanation:
+When RAM is insufficient, the operating system performs memory swapping, moving data from RAM to disk, which reduces performance.
+________________________________________
+⏱️ MCQ 3 Placement
+📍 After: 00:03:49
+🧠 Question 3
+In a bottleneck situation, what typically happens in a computing system?
+A) All components work equally fast
+B) Some components remain idle while one component slows the process
+C) The algorithm stops immediately
+D) The RAM increases automatically
+✅ Correct Answer: B
+Explanation:
+A bottleneck occurs when one component (CPU, RAM, Disk, or Network) slows down the system while other components wait idle.
+________________________________________
+⏱️ MCQ 4 Placement
+📍 After: 00:05:04
+🧠 Question 4
+Why is reading data directly from a hard drive slower compared to RAM?
+A) Hard drives store less data
+B) Hard drives have slower data access speeds than RAM
+C) RAM is used only for graphics
+D) Hard drives cannot store large files
+✅ Correct Answer: B
+Explanation:
+Hard drives have significantly slower access times compared to RAM, making data processing slower when reading directly from disk.
+________________________________________
+🎯 Final Question Placement Summary
+MCQ	Timestamp	Topic
+Q1	00:00:57	Challenges of Large Data
+Q2	00:02:24	Memory Swapping
+Q3	00:03:49	System Bottlenecks
+Q4	00:05:04	Hard Drive Speed Issue
+
+
+
+
+
+
+
+🎬 Unit 2.2 – Techniques for Handling Large Data
+MCQs with Timestamp Placement
+________________________________________
+⏱️ MCQ 1 Placement
+📍 After: 00:00:55
+🧠 Question 1
+Which of the following is NOT mentioned as a general technique for handling large volumes of data?
+A) Choosing the right algorithm
+B) Choosing the right data structure
+C) Choosing the right tool
+D) Increasing internet bandwidth
+✅ Correct Answer: D
+Explanation:
+The lecture states three solutions: using the right algorithm, right data structure, and right tool.
+________________________________________
+⏱️ MCQ 2 Placement
+📍 After: 00:02:24
+🧠 Question 2
+In online learning algorithms, what does “mini-batch learning” mean?
+A) Feeding the entire dataset at once
+B) Feeding the algorithm with small portions of data based on hardware capacity
+C) Feeding the algorithm with one observation per year
+D) Storing all data permanently in memory
+✅ Correct Answer: B
+Explanation:
+Mini-batch learning processes small chunks of data, making it suitable for systems with limited memory.
+________________________________________
+⏱️ MCQ 3 Placement
+📍 After: 00:03:52
+🧠 Question 3
+In the MapReduce model, which phase groups similar keys together before aggregation?
+A) Map phase
+B) Shuffle and sort phase
+C) Reduce phase
+D) Storage phase
+✅ Correct Answer: B
+Explanation:
+The shuffle and sort phase groups data with the same keys before the final aggregation step in the reduce phase.
+________________________________________
+⏱️ MCQ 4 Placement
+📍 After: 00:05:18
+🧠 Question 4
+Which data structure allows fast data retrieval using key–value pairs?
+A) Tree
+B) Hash function (hash table)
+C) Sparse matrix
+D) Linked list
+✅ Correct Answer: B
+Explanation:
+A hash table stores data using key–value pairs and allows fast lookup using hash functions.
+________________________________________
+⏱️ MCQ 5 Placement
+📍 After: 00:06:38
+🧠 Question 5
+What is a sparse matrix?
+A) A matrix with equal numbers of zeros and ones
+B) A matrix with mostly zero values and few non-zero elements
+C) A matrix containing only floating point values
+D) A matrix used only in machine learning
+✅ Correct Answer: B
+Explanation:
+A sparse matrix contains many zeros and very few meaningful values, allowing memory-efficient storage.
+________________________________________
+
+⏱️ MCQ 6 Placement
+📍 After: 00:08:37
+🧠 Question 6
+What is the role of Numba in Python?
+A) It compresses large datasets
+B) It converts Python code to machine code during runtime (Just-In-Time compilation)
+C) It visualizes data using graphs
+D) It stores data in a database
+✅ Correct Answer: B
+Explanation:
+Numba is a Just-In-Time (JIT) compiler that converts Python code into machine code at runtime to improve performance.
+________________________________________
+🎯 Final Question Placement Summary
+MCQ	Timestamp	Topic
+Q1	00:00:55	General techniques overview
+Q2	00:02:24	Online learning / Mini-batch learning
+Q3	00:03:52	MapReduce phases
+Q4	00:05:18	Hash functions
+Q5	00:06:38	Sparse matrix
+Q6	00:08:37	Python optimization tools
+
+
+
+
+
+
+
+
+
+
+🎬 Unit 2.3 – Tips for Handling Large Data
+MCQs with Timestamp Placement
+________________________________________
+⏱️ MCQ 1 Placement
+📍 After: 00:00:59
+🧠 Question 1
+What does the phrase “Don’t reinvent the wheel” mean in data science?
+A) Build all tools from scratch
+B) Use existing tools and libraries developed by others
+C) Avoid using programming languages
+D) Only use manual calculations
+✅ Correct Answer: B
+Explanation:
+Instead of building everything from scratch, data scientists should use existing optimized libraries and tools.
+________________________________________
+⏱️ MCQ 2 Placement
+📍 After: 00:01:43
+🧠 Question 2
+How can hardware be used efficiently when handling large datasets?
+A) Run tasks sequentially and wait for each step to finish
+B) Run different processes in parallel whenever possible
+C) Always store data on disk before processing
+D) Turn off the CPU during execution
+✅ Correct Answer: B
+Explanation:
+Running processes in parallel ensures that components like CPU, sensors, and processing units do not remain idle.
+________________________________________
+⏱️ MCQ 3 Placement
+📍 After: 00:02:26
+🧠 Question 3
+Why is reducing computing needs important when working with large data?
+A) It increases memory consumption
+B) It reduces system performance
+C) It allows large datasets to be processed efficiently using fewer resources
+D) It eliminates the need for algorithms
+✅ Correct Answer: C
+Explanation:
+Reducing computing needs helps optimize memory usage and processing power, making large data processing more efficient.
+________________________________________
+🎯 Final Question Placement Summary
+MCQ	Timestamp	Topic
+Q1	00:00:59	Using existing tools/libraries
+Q2	00:01:43	Efficient hardware usage
+Q3	00:02:26	Reducing computing needs
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+🎬 Unit 2.4 – Data Wrangling
+MCQs with Timestamp Placement
+________________________________________
+⏱️ MCQ 1 Placement
+📍 After: 00:00:55
+🧠 Question 1
+What is Data Wrangling?
+A) Storing raw data without modification
+B) Transforming raw data into a usable format for analysis
+C) Deleting unnecessary data permanently
+D) Visualizing data using graphs
+✅ Correct Answer: B
+Explanation:
+Data wrangling is the process of transforming and mapping raw data into a usable format for analytics.
+________________________________________
+⏱️ MCQ 2 Placement
+📍 After: 00:02:23
+🧠 Question 2
+Which of the following is a real-world application of data wrangling mentioned in the lecture?
+A) Video editing
+B) Fraud detection and customer behavior analysis
+C) Game development
+D) Hardware manufacturing
+✅ Correct Answer: B
+Explanation:
+Data wrangling helps analyze patterns such as fraud detection and customer purchasing behavior.
+________________________________________
+⏱️ MCQ 3 Placement
+📍 After: 00:04:20
+🧠 Question 3
+What is the main objective of the Data Discovery step in data wrangling?
+A) Remove duplicate data
+B) Understand the structure and content of the dataset
+C) Publish the dataset
+D) Normalize the dataset
+✅ Correct Answer: B
+Explanation:
+Data discovery helps understand the nature, format, and structure of the dataset and identify potential issues like missing values or outliers.
+________________________________________
+⏱️ MCQ 4 Placement
+📍 After: 00:05:36
+🧠 Question 4
+What happens during the Data Organization stage?
+A) Data is deleted
+B) Data is visualized using charts
+C) Data is restructured into a suitable format for analysis
+D) Data is encrypted
+✅ Correct Answer: C
+Explanation:
+Data organization reshapes and structures the data into formats suitable for analysis (often tabular form).
+________________________________________
+⏱️ MCQ 5 Placement
+📍 After: 00:06:53
+🧠 Question 5
+Which operation is commonly used in the Data Cleaning step?
+A) Creating dashboards
+B) Removing duplicates and handling missing values
+C) Writing SQL queries
+D) Publishing reports
+✅ Correct Answer: B
+Explanation:
+Data cleaning removes outliers, duplicates, and missing values to ensure accuracy.
+________________________________________
+⏱️ MCQ 6 Placement
+📍 After: 00:08:15
+🧠 Question 6
+What is the purpose of Data Enrichment?
+A) Delete old data
+B) Add additional information to improve data quality and completeness
+C) Encrypt the dataset
+D) Reduce dataset size
+✅ Correct Answer: B
+Explanation:
+Data enrichment improves datasets by adding useful information or features.
+________________________________________
+⏱️ MCQ 7 Placement
+📍 After: 00:08:53
+🧠 Question 7
+What is checked during the Data Validation stage?
+A) Internet speed
+B) Data accuracy and consistency
+C) Hardware performance
+D) Programming syntax
+✅ Correct Answer: B
+Explanation:
+Data validation ensures the data is accurate, complete, and follows predefined rules.
+________________________________________
+⏱️ MCQ 8 Placement
+📍 After: 00:10:13
+🧠 Question 8
+What is the final stage of the Data Wrangling process?
+A) Data Cleaning
+B) Data Discovery
+C) Data Publishing
+D) Data Transformation
+✅ Correct Answer: C
+Explanation:
+After processing and validation, the data is published or stored in formats like CSV, Excel, SQL, or dashboards.
+________________________________________
+🎯 Final Question Placement Summary
+MCQ	Timestamp	Topic
+Q1	00:00:55	Definition of Data Wrangling
+Q2	00:02:23	Applications & Benefits
+Q3	00:04:20	Data Discovery
+Q4	00:05:36	Data Organization
+Q5	00:06:53	Data Cleaning
+Q6	00:08:15	Data Enrichment
+Q7	00:08:53	Data Validation
+Q8	00:10:13	Data Publishing
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+🎬 Unit 2.5(a) – Combining and Merging Data
+MCQs with Timestamp Placement
+________________________________________
+⏱️ MCQ 1 Placement
+📍 After: 00:00:58
+🧠 Question 1
+Which of the following is the correct order of operations mentioned in the data wrangling process?
+A) Merge -> Transform -> Clean -> Reshape
+B) Clean -> Transform -> Merge -> Reshape
+C) Transform -> Clean -> Publish -> Merge
+D) Merge -> Clean -> Transform -> Analyze
+✅ Correct Answer: B
+Explanation:
+The lecture explains four main steps: cleaning, transforming, merging, and reshaping the dataset.
+________________________________________
+⏱️ MCQ 2 Placement
+📍 After: 00:02:24
+🧠 Question 2
+Which pandas function is commonly used to merge two dataframes based on a key?
+A) pd.reshape()
+B) pd.merge()
+C) pd.drop()
+D) pd.sort()
+✅ Correct Answer: B
+Explanation:
+pd.merge() merges two dataframes based on a common key, similar to SQL join operations.
+________________________________________
+⏱️ MCQ 3 Placement
+📍 After: 00:05:19
+🧠 Question 3
+What does an INNER JOIN return when merging two datasets?
+A) All records from both datasets
+B) Only the records that are common in both datasets
+C) Only records from the first dataset
+D) Only records from the second dataset
+✅ Correct Answer: B
+Explanation:
+Inner join returns only the matching records from both dataframes.
+________________________________________
+⏱️ MCQ 4 Placement
+📍 After: 00:05:59
+🧠 Question 4
+What does an OUTER JOIN return when merging datasets?
+A) Only matching records
+B) Only records from the first dataframe
+C) All records from both datasets, filling missing values with None/NaN
+D) Only records from the second dataframe
+✅ Correct Answer: C
+Explanation:
+Outer join performs a union of both datasets, including unmatched records.
+________________________________________
+⏱️ MCQ 5 Placement
+📍 After: 00:07:23
+🧠 Question 5
+What happens in a LEFT JOIN?
+A) Only records from the second dataframe are kept
+B) All records from the first dataframe are kept, matching records from the second dataframe are added
+C) Only common records are returned
+D) Both datasets are ignored
+✅ Correct Answer: B
+Explanation:
+Left join keeps all records from the left dataframe (df1) and adds matching values from df2.
+________________________________________
+⏱️ MCQ 6 Placement
+📍 After: 00:08:49
+🧠 Question 6
+In a RIGHT JOIN, priority is given to which dataset?
+A) First dataframe
+B) Second dataframe
+C) Both dataframes equally
+D) Neither dataframe
+✅ Correct Answer: B
+Explanation:
+Right join prioritizes the right dataframe (df2) and includes all its rows.
+________________________________________
+⏱️ MCQ 7 Placement
+📍 After: 00:11:31
+🧠 Question 7
+When merging two datasets without specifying a column, pandas merges based on:
+A) Random columns
+B) Common column names
+C) File size
+D) Data type
+✅ Correct Answer: B
+Explanation:
+If no column is specified, pandas automatically merges using common column names.
+________________________________________
+⏱️ MCQ 8 Placement
+📍 After: 00:16:37
+🧠 Question 8
+What does concatenation do in data processing?
+A) Deletes duplicate data
+B) Joins datasets together along rows or columns
+C) Converts data into JSON format
+D) Sorts data alphabetically
+✅ Correct Answer: B
+Explanation:
+Concatenation joins datasets row-wise (axis=0) or column-wise (axis=1).
+________________________________________
+
+🎯 Final Question Placement Summary
+MCQ	Timestamp	Topic
+Q1	00:00:58	Data Wrangling Steps
+Q2	00:02:24	Pandas Merge
+Q3	00:05:19	Inner Join
+Q4	00:05:59	Outer Join
+Q5	00:07:23	Left Join
+Q6	00:08:49	Right Join
+Q7	00:11:31	Merge without specifying column
+Q8	00:16:37	Concatenation
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+🎬 Unit 2.5(b) (Reshaping / Stack / Unstack)
+
+💻 Coding Question 1
+⏸️ Task
+Fill the blanks to convert columns into rows using stack.
+_____ pandas as pd
+
+data = {
+    'Math':[90,85],
+    'Science':[88,92]
+}
+
+df = pd._____(data)
+
+stacked = df._____
+
+print(_____)
+________________________________________
+✅ Solution
+import pandas as pd
+
+data = {
+    'Math':[90,85],
+    'Science':[88,92]
+}
+
+df = pd.DataFrame(data)
+
+stacked = df.stack()
+
+print(stacked)
+________________________________________
+
+💻 Coding Question 2
+⏸️ Task
+Fill the blanks to convert rows back to columns using unstack.
+_____ pandas as pd
+
+data = {
+    'Math':[90,85],
+    'Science':[88,92]
+}
+
+df = pd._____(data)
+
+stacked = df.stack()
+
+unstacked = stacked._____
+
+print(_____)
+________________________________________
+✅ Solution
+import pandas as pd
+
+data = {
+    'Math':[90,85],
+    'Science':[88,92]
+}
+
+df = pd.DataFrame(data)
+
+stacked = df.stack()
+
+unstacked = stacked.unstack()
+
+print(unstacked)
+________________________________________
+
+💻 Coding Question 3
+⏸️ Task
+Complete the code to reshape a NumPy array into 2 rows and 3 columns.
+_____ numpy as np
+
+arr = np._____(6)
+
+reshaped = arr._____(2,3)
+
+print(_____)
+________________________________________
+✅ Solution
+import numpy as np
+
+arr = np.arange(6)
+
+reshaped = arr.reshape(2,3)
+
+print(reshaped)
+
+
+
+
+
+
+
+
+
+🎬 Unit 2.6(a) – Data Cleaning & Preparation
+MCQs with Timestamp Placement
+________________________________________
+⏱️ MCQ 1 Placement
+📍 After: 00:00:58
+🧠 Question 1
+Which of the following is NOT a step in data cleaning mentioned in the lecture?
+A) Standardizing capitalization
+B) Removing duplicates
+C) Detecting outliers
+D) Training machine learning models
+✅ Correct Answer: D
+Explanation:
+Data cleaning includes standardization, removing outliers, handling missing values, removing irrelevant data, converting data types, and removing duplicates.
+________________________________________
+⏱️ MCQ 2 Placement
+📍 After: 00:02:27
+🧠 Question 2
+What is the purpose of data discretization?
+A) Convert data into numerical format
+B) Divide continuous data into categories or bins
+C) Remove duplicate records
+D) Normalize the dataset
+✅ Correct Answer: B
+Explanation:
+Data discretization divides continuous data into categories (e.g., young, middle age, senior).
+________________________________________
+⏱️ MCQ 3 Placement
+📍 After: 00:04:32
+🧠 Question 3
+Why is standardizing capitalization important in data cleaning?
+A) To improve hardware performance
+B) To ensure the program treats similar text values as the same entity
+C) To reduce dataset size
+D) To remove duplicate rows automatically
+✅ Correct Answer: B
+Explanation:
+Different capitalizations like "Alice", "ALICE", "alice" can be treated as different values unless standardized.
+________________________________________
+⏱️ MCQ 4 Placement
+📍 After: 00:05:53
+🧠 Question 4
+Which statistical method is used in the lecture to detect outliers?
+A) Linear regression
+B) Interquartile Range (IQR)
+C) K-Means clustering
+D) Logistic regression
+✅ Correct Answer: B
+Explanation:
+Outliers are detected using the Interquartile Range (IQR) method.
+________________________________________
+⏱️ MCQ 5 Placement
+📍 After: 00:06:33
+🧠 Question 5
+Which pandas function is used to handle missing values by replacing them with a mean value?
+A) drop()
+B) fillna()
+C) replace()
+D) merge()
+✅ Correct Answer: B
+Explanation:
+fillna() fills missing values using mean, median, or other values.
+________________________________________
+⏱️ MCQ 6 Placement
+📍 After: 00:09:38
+🧠 Question 6
+What does df.drop_duplicates() do?
+A) Removes rows with missing values
+B) Converts data types
+C) Removes duplicate rows from a dataset
+D) Normalizes the dataset
+✅ Correct Answer: C
+Explanation:
+drop_duplicates() removes repeated rows to maintain data accuracy.
+________________________________________
+🎯 MCQ Placement Summary
+MCQ	Timestamp	Topic
+Q1	00:00:58	Data Cleaning Steps
+Q2	00:02:27	Data Discretization
+Q3	00:04:32	Standardizing Capitalization
+Q4	00:05:53	Outlier Detection
+Q5	00:06:33	Handling Missing Values
+Q6	00:09:38	Removing Duplicates
+________________________________________
+💻 Coding Question
+⏸️ Task
+Complete the code to handle missing values using pandas.
+_____ pandas as pd
+
+data = {
+    "salary":[50000,60000,None,55000,None]
+}
+
+df = pd._____(data)
+
+df["salary"] = df["salary"]._____(df["salary"].mean())
+
+print(_____)
+________________________________________
+✅ Solution
+import pandas as pd
+
+data = {
+    "salary":[50000,60000,None,55000,None]
+}
+
+df = pd.DataFrame(data)
+
+df["salary"] = df["salary"].fillna(df["salary"].mean())
+
+print(df)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+🎬 Unit 2.6(b) – Handling Missing Values
+MCQs with Timestamp Placement
+________________________________________
+⏱️ MCQ 1 Placement
+📍 After: 00:01:01
+🧠 Question 1
+Which pandas function is used to replace missing values with the mean of the column?
+A) dropna()
+B) fillna()
+C) merge()
+D) concat()
+✅ Correct Answer: B
+Explanation:
+fillna() replaces missing values using methods like mean, median, or a fixed value.
+________________________________________
+⏱️ MCQ 2 Placement
+📍 After: 00:01:47
+🧠 Question 2
+What is Listwise Deletion?
+A) Replacing missing values with averages
+B) Removing only missing values
+C) Removing the entire row or column that contains missing values
+D) Replacing missing values using regression
+✅ Correct Answer: C
+Explanation:
+Listwise deletion removes entire rows (or columns) that contain missing values.
+________________________________________
+⏱️ MCQ 3 Placement
+📍 After: 00:02:27
+🧠 Question 3
+Why is Pairwise Deletion sometimes preferred over Listwise Deletion?
+A) It removes all data completely
+B) It keeps more useful data for calculations
+C) It converts missing values to zero
+D) It duplicates rows
+✅ Correct Answer: B
+Explanation:
+Pairwise deletion removes missing values only for specific operations, preserving more data.
+________________________________________
+⏱️ MCQ 4 Placement
+📍 After: 00:04:36
+🧠 Question 4
+What is Data Imputation?
+A) Removing duplicate rows
+B) Replacing missing values with estimated values
+C) Sorting datasets
+D) Encrypting datasets
+✅ Correct Answer: B
+Explanation:
+Imputation replaces missing values using statistical or predictive techniques.
+________________________________________
+⏱️ MCQ 5 Placement
+📍 After: 00:05:21
+🧠 Question 5
+Which method predicts missing values using regression models?
+A) Pairwise deletion
+B) Regression imputation
+C) Multiple deletion
+D) Random sampling
+✅ Correct Answer: B
+Explanation:
+Regression imputation predicts missing values using relationships between variables.
+________________________________________
+⏱️ MCQ 6 Placement
+📍 After: 00:08:42
+🧠 Question 6
+What does the fit_transform() function do in imputation?
+A) Deletes missing values
+B) Calculates statistics and replaces missing values
+C) Converts data types
+D) Sorts the dataset
+✅ Correct Answer: B
+Explanation:
+fit() computes the statistic (like mean) and transform() replaces missing values.
+________________________________________
+🎯 MCQ Placement Summary
+MCQ	Timestamp	Topic
+Q1	00:01:01	fillna()
+Q2	00:01:47	Listwise deletion
+Q3	00:02:27	Pairwise deletion
+Q4	00:04:36	Data imputation
+Q5	00:05:21	Regression imputation
+Q6	00:08:42	fit_transform()
+________________________________________
+💻 Coding Question
+⏸️ Task
+Complete the code to replace missing values using sklearn SimpleImputer.
+_____ pandas as pd
+from sklearn._____ import SimpleImputer
+
+data = pd.DataFrame({
+    "blood_pressure":[120,115,None,130]
+})
+
+imputer = SimpleImputer(strategy="_____")
+
+data["blood_pressure"] = imputer._____ (data[["blood_pressure"]])
+
+print(data)
+________________________________________
+✅ Solution
+import pandas as pd
+from sklearn.impute import SimpleImputer
+
+data = pd.DataFrame({
+    "blood_pressure":[120,115,None,130]
+})
+
+imputer = SimpleImputer(strategy="mean")
+
+data["blood_pressure"] = imputer.fit_transform(data[["blood_pressure"]])
+
+print(data)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+🎬 Unit 2.7 – Data Transformation
+MCQs with Timestamp Placement
+________________________________________
+⏱️ MCQ 1 Placement
+📍 After: 00:00:58
+🧠 Question 1
+What is the main purpose of data transformation?
+A) Delete datasets permanently
+B) Convert and structure data into a useful format for analysis
+C) Only visualize the data
+D) Compress the data into ZIP files
+✅ Correct Answer: B
+Explanation:
+Data transformation converts raw or unstructured data into a structured format suitable for analysis and decision-making.
+________________________________________
+⏱️ MCQ 2 Placement
+📍 After: 00:02:16
+🧠 Question 2
+Which of the following is the first step in the data transformation process?
+A) Data aggregation
+B) Data smoothing
+C) Data discretization
+D) Data normalization
+✅ Correct Answer: B
+Explanation:
+The first step is data smoothing, which removes noise and irregularities from the dataset.
+________________________________________
+⏱️ MCQ 3 Placement
+📍 After: 00:04:28
+🧠 Question 3
+What is Attribute Construction?
+A) Deleting unnecessary columns
+B) Creating new attributes from existing data
+C) Sorting data alphabetically
+D) Converting strings into integers
+✅ Correct Answer: B
+Explanation:
+Attribute construction creates new useful features from existing attributes to improve analysis.
+________________________________________
+⏱️ MCQ 4 Placement
+📍 After: 00:05:41
+🧠 Question 4
+What does data generalization do?
+A) Deletes detailed data
+B) Converts detailed values into broader categories
+C) Encrypts data
+D) Visualizes data in graphs
+✅ Correct Answer: B
+Explanation:
+Generalization converts specific values into higher-level categories, such as age groups.
+________________________________________
+⏱️ MCQ 5 Placement
+📍 After: 00:08:15
+🧠 Question 5
+Which pandas function is used in the lecture to group data and compute aggregated results?
+A) merge()
+B) groupby()
+C) reshape()
+D) append()
+✅ Correct Answer: B
+Explanation:
+groupby() is used for data aggregation, such as calculating total sales by region.
+________________________________________
+⏱️ MCQ 6 Placement
+📍 After: 00:10:14
+🧠 Question 6
+What is the purpose of data discretization?
+A) Convert categorical data into numbers
+B) Convert continuous values into intervals or bins
+C) Delete missing values
+D) Compress large datasets
+✅ Correct Answer: B
+Explanation:
+Discretization groups continuous data into intervals or bins such as low, medium, and high.
+________________________________________
+🎯 MCQ Placement Summary
+MCQ	Timestamp	Topic
+Q1	00:00:58	Data Transformation Definition
+Q2	00:02:16	Data Smoothing
+Q3	00:04:28	Attribute Construction
+Q4	00:05:41	Data Generalization
+Q5	00:08:15	Data Aggregation
+Q6	00:10:14	Data Discretization
+________________________________________
+💻 Coding Question
+⏸️ Task
+Complete the code to group sales by region and compute total sales.
+_____ pandas as pd
+
+data = {
+    "region":["North","South","North","East"],
+    "sales":[200,150,300,250]
+}
+
+df = pd._____(data)
+
+result = df._____("region")["sales"]._____()
+
+print(result)
+________________________________________
+✅ Solution
+import pandas as pd
+
+data = {
+    "region":["North","South","North","East"],
+    "sales":[200,150,300,250]
+}
+
+df = pd.DataFrame(data)
+
+result = df.groupby("region")["sales"].sum()
+
+print(result)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+🎬 Unit 2.8 – String Manipulation
+MCQs with Timestamp Placement
+________________________________________
+⏱️ MCQ 1 Placement
+📍 After: 00:00:50
+🧠 Question 1
+In Python, what is a string?
+A) A collection of numbers
+B) A sequence of characters enclosed in quotes
+C) A type of loop
+D) A mathematical function
+✅ Correct Answer: B
+Explanation:
+A string is a sequence of characters enclosed in single or double quotes.
+________________________________________
+⏱️ MCQ 2 Placement
+📍 After: 00:01:34
+🧠 Question 2
+What is string padding?
+A) Removing characters from a string
+B) Adding extra characters to the beginning or end of a string
+C) Splitting a string into words
+D) Searching a string
+✅ Correct Answer: B
+Explanation:
+Padding adds extra characters or spaces to format text properly.
+________________________________________
+⏱️ MCQ 3 Placement
+📍 After: 00:03:26
+🧠 Question 3
+Which Python method is used to divide a string into multiple substrings?
+A) split()
+B) strip()
+C) find()
+D) join()
+✅ Correct Answer: A
+Explanation:
+split() divides a string into multiple substrings using a delimiter.
+________________________________________
+⏱️ MCQ 4 Placement
+📍 After: 00:05:28
+🧠 Question 4
+Which function removes unwanted characters from the beginning and end of a string?
+A) strip()
+B) concat()
+C) search()
+D) append()
+✅ Correct Answer: A
+Explanation:
+strip() removes leading and trailing characters.
+________________________________________
+⏱️ MCQ 5 Placement
+📍 After: 00:06:52
+🧠 Question 5
+Which operator is used for string concatenation in Python?
+A) *
+B) +
+C) /
+D) =
+✅ Correct Answer: B
+Explanation:
+The + operator joins two strings together.
+________________________________________
+⏱️ MCQ 6 Placement
+📍 After: 00:07:30
+🧠 Question 6
+Which Python method is used to search for a substring inside a string?
+A) split()
+B) strip()
+C) find()
+D) append()
+✅ Correct Answer: C
+Explanation:
+find() returns the index position of the substring in the string.
+________________________________________
+🎯 MCQ Placement Summary
+MCQ	Timestamp	Topic
+Q1	00:00:50	String definition
+Q2	00:01:34	String padding
+Q3	00:03:26	String splitting
+Q4	00:05:28	String stripping
+Q5	00:06:52	String concatenation
+Q6	00:07:30	String search
+________________________________________
+💻 Coding Question
+⏸️ Task
+Complete the code to split a sentence into individual words.
+text = "Hello world how are you"
+
+words = text._____()
+
+print(_____)
+________________________________________
+✅ Solution
+text = "Hello world how are you"
+
+words = text.split()
+
+print(words)

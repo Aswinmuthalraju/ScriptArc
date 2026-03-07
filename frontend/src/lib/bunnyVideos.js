@@ -12,6 +12,7 @@ export const BUNNY_STREAM_VIDEOS = {
     7: "b92634ed-bde0-4706-aaaf-a791929b2d86", // 1-lecture7.mp4
     8: "63bcc710-e4f2-47ac-aed3-4a458a2407cb", // 1-lecture8.mp4
     9: "31c0c608-48b9-44e9-86f6-bee1579ac2bb", // 1-lecture9.mp4
+    10: "9f40384c-feaf-4275-b487-83a23ca06fd9", // 1-lecture10.mp4
     11: "01d3d084-4422-4c9d-895a-ef5c9a8e2829", // 1-lecture11.mp4 (mapped to the first UUID returned)
     // Unit 2 (12 - 21) => order_index 12 is lecture 1 of Unit 2
     12: "37978c7c-eb67-41e3-a38b-cb3f85be8fd2", // 2-lecture1.mp4

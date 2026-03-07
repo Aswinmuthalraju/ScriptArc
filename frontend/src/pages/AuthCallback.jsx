@@ -41,19 +41,63 @@ const AuthCallback = () => {
                             if (mounted) navigate('/register', { replace: true });
                             return;
                         }
+
+                        // Existing user login — check role for proper redirect
+                        localStorage.removeItem('googleAuthAction');
+                        const { data: userData } = await supabase
+                            .from('users').select('role').eq('id', user.id).maybeSingle();
+
+                        if (userData?.role === 'mentor') {
+                            const { data: mp } = await supabase
+                                .from('mentor_profiles').select('status').eq('user_id', user.id).maybeSingle();
+                            if (mounted) navigate(mp?.status === 'approved' ? '/mentor' : '/mentor/pending', { replace: true });
+                        } else {
+                            if (mounted) navigate('/dashboard', { replace: true });
+                        }
+                        return;
                     }
 
                     if (authAction === 'register' || pendingRole || user.user_metadata?.is_ghost) {
                         // User went through the sign-up flow, so finalize it.
-                        // Role is set via auth metadata which the handle_new_user trigger reads.
-                        // The prevent_privilege_escalation trigger blocks direct DB role updates,
-                        // so we only update auth metadata here.
                         const roleToSet = pendingRole || 'student';
                         await supabase.auth.updateUser({ data: { role: roleToSet, is_ghost: null } });
+
+                        // If registering as a mentor, create the mentor_profiles application row
+                        if (roleToSet === 'mentor') {
+                            try {
+                                const mentorDataStr = localStorage.getItem('pendingMentorData');
+                                const mentorData = mentorDataStr ? JSON.parse(mentorDataStr) : {};
+                                await supabase.from('mentor_profiles').insert({
+                                    user_id: user.id,
+                                    expertise: mentorData.expertise?.trim() || null,
+                                    experience_years: mentorData.experience_years ? parseInt(mentorData.experience_years) : null,
+                                    bio: mentorData.bio?.trim() || null,
+                                    linkedin_url: mentorData.linkedin?.trim() || null,
+                                    status: 'pending',
+                                });
+                            } catch {
+                                // Non-critical if profile already exists (23505 duplicate)
+                            }
+                            localStorage.removeItem('pendingMentorData');
+                        }
+
                         localStorage.removeItem('pendingRole');
+                        localStorage.removeItem('googleAuthAction');
+
+                        if (roleToSet === 'mentor') {
+                            toast.success('Application submitted! Awaiting admin approval.');
+                            if (mounted) navigate('/mentor/pending', { replace: true });
+                        } else {
+                            toast.success('Account created successfully!');
+                            if (mounted) navigate('/dashboard', { replace: true });
+                        }
+                        return;
                     }
 
+                    // Fallback: no authAction — just navigate based on role
                     localStorage.removeItem('googleAuthAction');
+                    localStorage.removeItem('pendingRole');
+                    localStorage.removeItem('pendingMentorData');
                     if (mounted) navigate('/dashboard', { replace: true });
                 } else {
                     // Fallback if no session was established

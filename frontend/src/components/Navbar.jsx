@@ -20,7 +20,9 @@ import {
   Menu,
   X,
   Sun,
-  Moon
+  Moon,
+  Users,
+  ShieldCheck,
 } from 'lucide-react';
 
 const Navbar = () => {
@@ -37,11 +39,18 @@ const Navbar = () => {
 
   const isActive = (path) => location.pathname === path;
 
-  const navLinks = user ? [
-    { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { path: '/courses', label: 'Courses', icon: BookOpen },
-    { path: '/leaderboard', label: 'Leaderboard', icon: Trophy },
-  ] : [];
+  const navLinks = user ? (
+    user.isAdmin ? [
+      { path: '/admin', label: 'Admin', icon: ShieldCheck },
+      { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    ] : user.role === 'mentor' && user.mentorProfile?.status === 'approved' ? [
+      { path: '/mentor', label: 'Dashboard', icon: Users },
+    ] : [
+      { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+      { path: '/courses', label: 'Courses', icon: BookOpen },
+      { path: '/leaderboard', label: 'Leaderboard', icon: Trophy },
+    ]
+  ) : [];
 
   return (
     <nav className="fixed top-0 w-full z-50 border-b border-border/40" style={{ background: 'hsl(var(--background) / 0.85)', backdropFilter: 'blur(20px)' }} data-testid="navbar">
@@ -66,7 +75,7 @@ const Navbar = () => {
                 key={link.path}
                 to={link.path}
                 data-testid={`nav-${link.label.toLowerCase()}`}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${isActive(link.path)
+                className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${isActive(link.path)
                   ? 'bg-primary/15 text-primary'
                   : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
                   }`}
@@ -82,7 +91,7 @@ const Navbar = () => {
             {/* Theme Toggle */}
             <button
               onClick={toggleTheme}
-              className="p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all duration-200"
+              className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all duration-200"
               data-testid="theme-toggle-btn"
               aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
             >
@@ -99,7 +108,7 @@ const Navbar = () => {
                   <DropdownMenuTrigger asChild>
                     <Button
                       variant="ghost"
-                      className="flex items-center gap-2 hover:bg-muted/50 rounded-xl"
+                      className="flex items-center gap-2 hover:bg-muted/50 rounded-md"
                       data-testid="user-menu-trigger"
                     >
                       {user.avatar_id && avatars.find(a => a.id === user.avatar_id) ? (
@@ -114,7 +123,7 @@ const Navbar = () => {
                       <span className="hidden sm:block text-sm text-foreground font-medium">{user.name}</span>
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-48 border-border rounded-xl" style={{ background: 'hsl(var(--card))', backdropFilter: 'blur(20px)' }}>
+                  <DropdownMenuContent align="end" className="w-48 border-border rounded-md" style={{ background: 'hsl(var(--card))', backdropFilter: 'blur(20px)' }}>
                     <DropdownMenuItem
                       onClick={() => navigate('/profile')}
                       className="cursor-pointer hover:bg-muted/50 rounded-lg"
@@ -157,7 +166,7 @@ const Navbar = () => {
 
             {/* Mobile Menu Toggle */}
             <button
-              className="md:hidden p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted/50"
+              className="md:hidden p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               data-testid="mobile-menu-toggle"
             >
@@ -176,7 +185,7 @@ const Navbar = () => {
                 key={link.path}
                 to={link.path}
                 onClick={() => setMobileMenuOpen(false)}
-                className={`flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-medium ${isActive(link.path)
+                className={`flex items-center gap-2 px-4 py-3 rounded-md text-sm font-medium ${isActive(link.path)
                   ? 'bg-primary/15 text-primary'
                   : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
                   }`}

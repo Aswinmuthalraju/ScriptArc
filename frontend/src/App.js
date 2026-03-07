@@ -6,6 +6,7 @@ import { ThemeProvider } from "@/context/ThemeContext";
 import Navbar from "@/components/Navbar";
 import Starfield from "@/components/ui/Starfield";
 import AmbientBackground from "@/components/ui/AmbientBackground";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import "@/App.css";
 
 const Landing = lazy(() => import("@/pages/Landing"));
@@ -17,8 +18,12 @@ const Learn = lazy(() => import("@/pages/Learn"));
 const Leaderboard = lazy(() => import("@/pages/Leaderboard"));
 const Profile = lazy(() => import("@/pages/Profile"));
 const AuthCallback = lazy(() => import("@/pages/AuthCallback"));
+const MentorDashboard = lazy(() => import("@/pages/MentorDashboard"));
+const MentorPending = lazy(() => import("@/pages/MentorPending"));
+const AdminPage = lazy(() => import("@/pages/AdminPage"));
+const VerifyCertificate = lazy(() => import("@/pages/VerifyCertificate"));
 
-// Protected Route
+// Protected Route — any authenticated user
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
   if (loading) return <SplashScreen />;
@@ -26,11 +31,36 @@ const ProtectedRoute = ({ children }) => {
   return children;
 };
 
-// Public Route
+// Public Route — redirect logged-in users to their home
 const PublicRoute = ({ children }) => {
   const { user, loading } = useAuth();
   if (loading) return <SplashScreen />;
-  if (user) return <Navigate to="/dashboard" replace />;
+  if (user) {
+    if (user.isAdmin) return <Navigate to="/admin" replace />;
+    if (user.role === 'mentor') {
+      return <Navigate to={user.mentorProfile?.status === 'approved' ? '/mentor' : '/mentor/pending'} replace />;
+    }
+    return <Navigate to="/dashboard" replace />;
+  }
+  return children;
+};
+
+// Mentor Route — approved mentors only
+const MentorRoute = ({ children }) => {
+  const { user, loading } = useAuth();
+  if (loading) return <SplashScreen />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.role !== 'mentor') return <Navigate to="/dashboard" replace />;
+  if (user.mentorProfile?.status !== 'approved') return <Navigate to="/mentor/pending" replace />;
+  return children;
+};
+
+// Admin Route — ScriptArc.dev@gmail.com only
+const AdminRoute = ({ children }) => {
+  const { user, loading } = useAuth();
+  if (loading) return <SplashScreen />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!user.isAdmin) return <Navigate to="/dashboard" replace />;
   return children;
 };
 
@@ -113,6 +143,24 @@ function AppRoutes() {
         <ProtectedRoute><AppLayout><Page><Profile /></Page></AppLayout></ProtectedRoute>
       } />
 
+      {/* Mentor routes */}
+      <Route path="/mentor" element={
+        <MentorRoute><AppLayout><Page><MentorDashboard /></Page></AppLayout></MentorRoute>
+      } />
+      <Route path="/mentor/pending" element={
+        <ProtectedRoute><AppLayout><Page><MentorPending /></Page></AppLayout></ProtectedRoute>
+      } />
+
+      {/* Admin route */}
+      <Route path="/admin" element={
+        <AdminRoute><AppLayout><Page><AdminPage /></Page></AppLayout></AdminRoute>
+      } />
+
+      {/* Public certificate verification — no auth required */}
+      <Route path="/verify/:certificateId" element={
+        <Page><VerifyCertificate /></Page>
+      } />
+
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
@@ -136,9 +184,11 @@ function AppInner() {
       />
       {/* App content — z-10 */}
       <div style={{ position: 'relative', zIndex: 10 }}>
-        <Suspense fallback={<SplashScreen />}>
-          <AppRoutes />
-        </Suspense>
+        <ErrorBoundary>
+          <Suspense fallback={<SplashScreen />}>
+            <AppRoutes />
+          </Suspense>
+        </ErrorBoundary>
       </div>
       <Toaster
         position="top-right"

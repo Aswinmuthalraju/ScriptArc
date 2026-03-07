@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ScriptArc Certificate</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;900&family=Playfair+Display:ital,wght@0,600;0,700;1,600&family=Lato:wght@400;600&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <div id="errorMsg"></div>
+
+  <button id="downloadBtn" onclick="downloadPDF()">
+    Download Certificate (PDF)
+  </button>
+
+  <div id="certificateContainer"></div>
+
+  <!-- QR Code generator -->
+  <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
+
+  <!-- html2pdf (uses html2canvas + jsPDF) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+  <script>
+    // ── Read URL params ────────────────────────────────────────
+    const params   = new URLSearchParams(window.location.search);
+
+    const studentName    = params.get('name')     || 'Student';
+    const courseName     = params.get('course')   || 'Course';
+    const mentorName     = params.get('mentor')   || 'ScriptArc';
+    const score          = params.get('score')    || '0';
+    const maxScore       = params.get('maxScore') || '0';
+    const starRating     = parseInt(params.get('stars') || '1', 10);
+    const completionDate = params.get('date')     || new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+    const certId         = params.get('certId')   || 'SCR-0000-000000';
+
+    // Validate we have real data
+    if (!params.get('certId')) {
+      const err = document.getElementById('errorMsg');
+      err.style.display = 'block';
+      err.textContent = 'Missing certificate data. Please open this page from the course completion screen.';
+    }
+
+    // ── Star display helpers ───────────────────────────────────
+    function buildStars(n) {
+      const filled = '★'.repeat(Math.max(0, Math.min(5, n)));
+      const empty  = '☆'.repeat(5 - Math.max(0, Math.min(5, n)));
+      return filled + empty;
+    }
+
+    const starLabels = ['1-Star Completion', '2-Star Completion', '3-Star Completion', '4-Star Achievement', '5-Star Excellence'];
+
+    // ── Load and populate template ─────────────────────────────
+    async function loadCertificate() {
+      try {
+        const res  = await fetch('template.html');
+        const html = await res.text();
+        document.getElementById('certificateContainer').innerHTML = html;
+
+        // Fill fields
+        document.getElementById('studentName').textContent    = studentName;
+        document.getElementById('courseName').textContent     = courseName;
+        document.getElementById('mentorName').textContent     = mentorName;
+        document.getElementById('score').textContent          = score;
+        document.getElementById('maxScore').textContent       = maxScore;
+        document.getElementById('certId').textContent         = certId;
+        document.getElementById('completionDate').textContent = completionDate;
+        document.getElementById('stars').textContent          = buildStars(starRating);
+        document.getElementById('starsLabel').textContent     = starLabels[starRating - 1] || '1-Star Completion';
+
+        // Style star color based on rating
+        const starsEl = document.getElementById('stars');
+        const starColors = ['#9CA3AF', '#78716C', '#22C55E', '#3B82F6', '#D4AF58'];
+        starsEl.style.color = starColors[starRating - 1] || '#D4AF58';
+
+        // Generate QR code linking to the verify page
+        const verifyURL = `${window.location.origin}/verify/${certId}`;
+        QRCode.toDataURL(verifyURL, { width: 148, margin: 1 }, (err, url) => {
+          if (!err) document.getElementById('qrCode').src = url;
+        });
+
+      } catch (err) {
+        const errEl = document.getElementById('errorMsg');
+        errEl.style.display = 'block';
+        errEl.textContent = 'Failed to load certificate template: ' + err.message;
+      }
+    }
+
+    // ── PDF download ───────────────────────────────────────────
+    function downloadPDF() {
+      const btn = document.getElementById('downloadBtn');
+      btn.disabled = true;
+      btn.textContent = 'Generating PDF…';
+
+      const element = document.querySelector('.certificate');
+      if (!element) {
+        btn.disabled = false;
+        btn.textContent = 'Download Certificate (PDF)';
+        return;
+      }
+
+      const filename = `ScriptArc-Certificate-${certId}.pdf`;
+
+      html2pdf()
+        .set({
+          margin:      0,
+          filename:    filename,
+          image:       { type: 'jpeg', quality: 0.98 },
+          html2canvas: {
+            scale: 2,                  // 2× for sharp text
+            useCORS: true,
+            letterRendering: true,
+            backgroundColor: '#FDFCF8',
+          },
+          jsPDF: {
+            unit:        'px',
+            format:      [1122, 794],  // A4 landscape in px
+            orientation: 'landscape',
+          },
+        })
+        .from(element)
+        .save()
+        .finally(() => {
+          btn.disabled = false;
+          btn.textContent = 'Download Certificate (PDF)';
+        });
+    }
+
+    loadCertificate();
+  </script>
+
+</body>
+</html>

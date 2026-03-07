@@ -11,11 +11,12 @@ const Editor = lazy(() => import('@monaco-editor/react'));
 import {
   Play, Lightbulb,
   CheckCircle, XCircle, Loader2, ArrowLeft, Code2, AlertTriangle,
-  Trophy, ArrowRight, Lock, Target, Zap, X
+  Trophy, ArrowRight, Lock, Target, Zap, X, SkipBack, SkipForward
 } from 'lucide-react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { BUNNY_STREAM_VIDEOS } from '@/lib/bunnyVideos';
 import playerjs from 'player.js';
+import { LOCK_TOLERANCE_SECONDS, DATA_SCIENCE_COURSE_ID } from '@/lib/constants';
 
 const LANGUAGE_MAP = {
   71: { name: 'Python', monaco: 'python' },
@@ -51,8 +52,12 @@ const Learn = () => {
   // ── Player lock state ────────────────────────────────────────
   // isPlayerLocked: drives the overlay that blocks native Bunny controls
   // lockedAtRef:    the exact timestamp we snapped to; enforced on every tick
+  // lastSnapRef:    throttle — ms timestamp of the last setCurrentTime call
+  // openChallengeRef: stable ref so playerjs timeupdate never has a stale closure
   const [isPlayerLocked, setIsPlayerLocked] = useState(false);
   const lockedAtRef = useRef(null);
+  const lastSnapRef = useRef(0);
+  const openChallengeRef = useRef(null);
 
   // ── Bunny Stream IDs ─────────────────────────────────────────
   const BUNNY_LIBRARY_ID = '612832';
@@ -81,6 +86,7 @@ const Learn = () => {
   const [completedChallenges, setCompletedChallenges] = useState(new Set());
   const [sessionPoints, setSessionPoints] = useState(0);
   const [showComplete, setShowComplete] = useState(false);
+  const showCompleteRef = useRef(false);
 
   // ── Mobile detection ─────────────────────────────────────────
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
@@ -97,6 +103,9 @@ const Learn = () => {
   useEffect(() => {
     completedChallengesRef.current = completedChallenges;
   }, [completedChallenges]);
+  useEffect(() => {
+    showCompleteRef.current = showComplete;
+  }, [showComplete]);
 
   // ── Bunny video ID for current lesson ────────────────────────
   const bunnyVideoId = useMemo(() => {
@@ -110,41 +119,50 @@ const Learn = () => {
 
   const fetchLessonData = async () => {
     try {
-      const { data: lessonData, error: lessonErr } = await supabase
-        .from('lessons').select('*').eq('id', lessonId).single();
+      // Fetch lesson + authenticated user in parallel
+      const [
+        { data: lessonData, error: lessonErr },
+        { data: { user } },
+      ] = await Promise.all([
+        supabase.from('lessons').select('*').eq('id', lessonId).single(),
+        supabase.auth.getUser(),
+      ]);
 
       if (lessonErr || !lessonData) { setLoading(false); return; }
 
-      const { data: challengeData } = await supabase
-        .from('challenges').select('*')
-        .eq('lesson_id', lessonId)
-        .order('timestamp_seconds', { ascending: true });
+      // Fetch challenges, next lesson, and existing progress in parallel
+      const [
+        { data: challengeData },
+        { data: nextLessonData },
+        { data: prog },
+      ] = await Promise.all([
+        supabase.from('challenges').select('*')
+          .eq('lesson_id', lessonId)
+          .order('timestamp_seconds', { ascending: true }),
+        supabase.from('lessons').select('id, title, order_index')
+          .eq('course_id', lessonData.course_id)
+          .eq('order_index', lessonData.order_index + 1)
+          .maybeSingle(),
+        user
+          ? supabase.from('user_progress').select('*')
+            .eq('user_id', user.id).eq('lesson_id', lessonId).maybeSingle()
+          : Promise.resolve({ data: null }),
+      ]);
 
-      const { data: nextLessonData } = await supabase
-        .from('lessons').select('id, title, order_index')
-        .eq('course_id', lessonData.course_id)
-        .eq('order_index', lessonData.order_index + 1)
-        .maybeSingle();
-
-      // Restore existing progress
-      const { data: { user } } = await supabase.auth.getUser();
+      // Restore existing progress or auto-enroll on first visit
       if (user) {
-        const { data: prog } = await supabase
-          .from('user_progress').select('*')
-          .eq('user_id', user.id).eq('lesson_id', lessonId).maybeSingle();
         if (prog) {
           setCompletedChallenges(new Set(prog.completed_challenge_ids || []));
           setSessionPoints(prog.stars_earned || 0);
           if (prog.completed) setShowComplete(true);
         } else {
-          // Auto-enroll on first visit so CourseSingle sees progress
           const { error: insertErr } = await supabase.from('user_progress').upsert({
             user_id: user.id,
             lesson_id: lessonId,
             course_id: lessonData.course_id,
             completed: false,
             stars_earned: 0,
-            completed_challenge_ids: []
+            completed_challenge_ids: [],
           }, { onConflict: 'user_id,lesson_id', ignoreDuplicates: true });
           if (insertErr && process.env.NODE_ENV !== 'production') {
             console.error('Initial progress insert error:', insertErr);
@@ -201,11 +219,17 @@ const Learn = () => {
         if (dur) setDuration(dur);
 
         if (!hasSpecialAccess) {
-          // ── Enforce lock: snap back and pause on every tick while locked ──
+          // ── Enforce lock: snap back to challenge position while locked ──
           if (lockedAtRef.current !== null) {
-            if (time > lockedAtRef.current + 1) {
-              player.setCurrentTime(lockedAtRef.current);
-              player.pause();
+            if (time > lockedAtRef.current + LOCK_TOLERANCE_SECONDS) {
+              // Throttle: only call setCurrentTime/pause at most every 500 ms
+              // to avoid hammering the player API on every tick
+              const now = Date.now();
+              if (now - lastSnapRef.current > 500) {
+                lastSnapRef.current = now;
+                player.setCurrentTime(lockedAtRef.current);
+                player.pause();
+              }
             }
             return;
           }
@@ -216,10 +240,12 @@ const Learn = () => {
           );
           if (nextChallenge && time >= nextChallenge.timestamp_seconds) {
             lockedAtRef.current = nextChallenge.timestamp_seconds;
+            lastSnapRef.current = Date.now();
             setIsPlayerLocked(true);
             player.setCurrentTime(nextChallenge.timestamp_seconds);
             player.pause();
-            openChallenge(nextChallenge);
+            // Use ref to avoid stale closure over openChallenge
+            openChallengeRef.current?.(nextChallenge);
           }
         }
       });
@@ -229,7 +255,7 @@ const Learn = () => {
       active = false;
       playerInstanceRef.current = null;
     };
-  }, [bunnyVideoId, hasSpecialAccess]); // eslint-disable-line
+  }, [bunnyVideoId, hasSpecialAccess]);
 
   const getMaxSeekTime = () => {
     if (hasSpecialAccess) return duration || 9999;
@@ -272,6 +298,10 @@ const Learn = () => {
     }
   };
 
+  // Keep ref in sync on every render so the playerjs timeupdate callback
+  // always calls the latest version of openChallenge (avoids stale closure).
+  openChallengeRef.current = openChallenge;
+
   const resumeVideo = () => {
     setShowChallenge(false);
     // Clear the lock so timeupdate stops enforcing position
@@ -282,7 +312,9 @@ const Learn = () => {
     // to prevent immediate re-triggering of the challenge lock.
     setTimeout(() => {
       setActiveChallenge(null);
-      if (!showComplete) {
+      // Read from ref to avoid stale closure: showComplete may have changed
+      // between the resumeVideo call and when this timeout fires.
+      if (!showCompleteRef.current) {
         playerInstanceRef.current?.play();
         setIsPlaying(true);
       }
@@ -304,7 +336,7 @@ const Learn = () => {
         completed_challenge_ids: Array.from(newCompleted),
         updated_at: new Date().toISOString(),
       }, { onConflict: 'user_id,lesson_id' });
-      // We no longer trigger setShowComplete here; we wait for the video to reach the very end.
+      // Completion dialog is triggered by the video 'ended' event, not here.
     } catch (e) {
       console.error('saveProgress:', e);
       toast.error('Progress could not be saved. Please check your connection.');
@@ -399,7 +431,7 @@ const Learn = () => {
   // ── Shared: call code execution via Supabase Edge Function ───
   // Data science courses route to the Python Runner (NumPy, Pandas, etc.)
   const isDataScienceCourse = (lesson?.title || '').toLowerCase().includes('data science')
-    || (lesson?.course_id === 'd5c1e7a3-9f2b-4e8d-a6c4-3b7f1e9d2a5c'); // DS course ID
+    || lesson?.course_id === DATA_SCIENCE_COURSE_ID;
 
   const MAX_CODE_SIZE = 50_000; // 50 KB limit
   const EXECUTION_TIMEOUT_MS = 20_000; // 20s client-side timeout
@@ -534,7 +566,7 @@ except Exception as e:
           time: result.time,
           status: result.status,
         });
-        toast.success(marks === 4 ? '⚡ +4 Points earned!' : marks === 2 ? '✅ +2 Points earned.' : 'Solution viewed: 0 Points.');
+        toast.success(marks === 4 ? '+4 Points earned!' : marks === 2 ? '+2 Points earned.' : 'Solution viewed: 0 Points.');
         await onChallengeComplete(marks);
       } else {
         setCodeResult({
@@ -645,43 +677,110 @@ except Exception as e:
               )}
             </div>
 
-            {/* Points and Challenge Progress display */}
-            <div className="px-4 py-3 bg-surface border-t border-border flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <Target className="w-4 h-4 text-primary" />
-                  <span className="text-sm font-semibold text-foreground">{sessionPoints} pts</span>
-                </div>
-                {isPlaying && (
-                  <span className="text-xs text-accent font-medium">▶ Playing</span>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2 mt-1">
-                <span className="text-xs text-text-secondary font-medium mr-2">Challenges:</span>
-                {challenges.map((ch, i) => {
-                  const done = completedChallenges.has(ch.id);
-                  return (
+            {/* Enhanced Video Controls — YouTube-style playbar */}
+            <div className="px-4 py-3 bg-surface border-t border-border space-y-2">
+              {/* Seekable video timeline */}
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-text-secondary font-mono w-10 shrink-0 tabular-nums">
+                  {formatTime(currentTime)}
+                </span>
+                <div className="relative flex-1 flex items-center">
+                  <input
+                    type="range"
+                    min="0"
+                    max={duration || 100}
+                    step="0.5"
+                    value={Math.min(currentTime, duration || 100)}
+                    onChange={(e) => {
+                      if (isPlayerLocked || !playerInstanceRef.current) return;
+                      const requested = Number(e.target.value);
+                      const capped = Math.min(requested, getMaxSeekTime());
+                      playerInstanceRef.current.setCurrentTime(capped);
+                    }}
+                    disabled={isPlayerLocked || !bunnyVideoId}
+                    className="w-full h-1.5 appearance-none rounded-full bg-border accent-primary cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    style={{
+                      background: duration > 0
+                        ? `linear-gradient(to right, hsl(var(--primary)) ${(currentTime / duration) * 100}%, hsl(var(--border)) ${(currentTime / duration) * 100}%)`
+                        : undefined,
+                    }}
+                    data-testid="video-seekbar"
+                  />
+                  {/* Challenge timestamp markers */}
+                  {duration > 0 && challenges.map((ch) => (
                     <div
                       key={ch.id}
-                      className={`flex items-center justify-center w-6 h-6 rounded-full border ${done ? 'bg-accent/20 border-accent/40 text-accent' : 'bg-surface-highlight border-border text-text-secondary'
-                        }`}
-                      title={`${ch.title} (@${formatTime(ch.timestamp_seconds)})`}
-                    >
-                      {done ? <CheckCircle className="w-3.5 h-3.5" /> : <span className="text-[10px] font-mono font-bold">{i + 1}</span>}
-                    </div>
-                  );
-                })}
+                      className={`absolute top-0 h-1.5 w-1 rounded-full pointer-events-none ${completedChallenges.has(ch.id) ? 'bg-accent' : 'bg-warning'}`}
+                      style={{ left: `calc(${(ch.timestamp_seconds / duration) * 100}% - 2px)` }}
+                      title={`${ch.title} @ ${formatTime(ch.timestamp_seconds)}`}
+                    />
+                  ))}
+                </div>
+                <span className="text-xs text-text-secondary font-mono w-10 shrink-0 text-right tabular-nums">
+                  {formatTime(duration)}
+                </span>
               </div>
-            </div>
 
-            {/* Lesson Progress Bar */}
-            <div className="px-4 py-3 bg-surface border-t border-border">
-              <div className="flex items-center justify-between text-xs text-text-secondary mb-1.5">
-                <span className="font-medium text-foreground">{lesson.title}</span>
-                <span>{completedChallenges.size}/{challenges.length} challenges</span>
+              {/* Controls row */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1">
+                  {/* Rewind 10s */}
+                  <button
+                    onClick={() => {
+                      if (isPlayerLocked || !playerInstanceRef.current) return;
+                      playerInstanceRef.current.setCurrentTime(Math.max(0, currentTime - 10));
+                    }}
+                    disabled={isPlayerLocked || !bunnyVideoId}
+                    className="p-1.5 rounded-md text-text-secondary hover:text-foreground hover:bg-surface-highlight disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                    title="Rewind 10 seconds"
+                    data-testid="rewind-10s-btn"
+                  >
+                    <SkipBack className="w-4 h-4" />
+                  </button>
+                  <span className="text-[10px] text-text-secondary select-none w-4 text-center">10</span>
+
+                  {/* Skip forward 10s */}
+                  <button
+                    onClick={() => {
+                      if (isPlayerLocked || !playerInstanceRef.current) return;
+                      const newTime = Math.min(getMaxSeekTime(), currentTime + 10);
+                      playerInstanceRef.current.setCurrentTime(newTime);
+                    }}
+                    disabled={isPlayerLocked || !bunnyVideoId}
+                    className="p-1.5 rounded-md text-text-secondary hover:text-foreground hover:bg-surface-highlight disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                    title="Skip 10 seconds"
+                    data-testid="skip-10s-btn"
+                  >
+                    <SkipForward className="w-4 h-4" />
+                  </button>
+                  <span className="text-[10px] text-text-secondary select-none w-4 text-center">10</span>
+
+                  {/* Points */}
+                  <div className="flex items-center gap-1.5 ml-3">
+                    <Target className="w-3.5 h-3.5 text-primary" />
+                    <span className="text-sm font-semibold text-foreground">{sessionPoints} pts</span>
+                  </div>
+                </div>
+
+                {/* Challenge tracker dots */}
+                <div className="flex items-center gap-1.5">
+                  {challenges.map((ch, i) => {
+                    const done = completedChallenges.has(ch.id);
+                    return (
+                      <div
+                        key={ch.id}
+                        className={`flex items-center justify-center w-6 h-6 rounded-full border ${done ? 'bg-accent/20 border-accent/40 text-accent' : 'bg-surface-highlight border-border text-text-secondary'}`}
+                        title={`${ch.title} @ ${formatTime(ch.timestamp_seconds)}`}
+                      >
+                        {done ? <CheckCircle className="w-3.5 h-3.5" /> : <span className="text-[10px] font-mono font-bold">{i + 1}</span>}
+                      </div>
+                    );
+                  })}
+                  {isPlaying && (
+                    <span className="text-xs text-accent font-medium ml-1">Live</span>
+                  )}
+                </div>
               </div>
-              <Progress value={progressPct} className="h-1.5 bg-surface-highlight" />
             </div>
           </div>
         </div>
@@ -765,8 +864,8 @@ except Exception as e:
           aria-describedby={activeChallenge?.challenge_type === 'coding' ? 'coding-challenge-desc' : undefined}
           className={
             activeChallenge?.challenge_type === 'coding'
-              ? 'w-screen h-screen max-w-none max-h-none rounded-none border-0 bg-[#0f111a] p-0 flex flex-col'
-              : 'w-[95vw] sm:max-w-2xl max-h-[92vh] overflow-hidden bg-surface border-border p-0 flex flex-col'
+              ? 'w-screen h-screen max-w-none max-h-none rounded-none border-0 bg-[#0f111a] p-0 flex flex-col [&>button]:hidden'
+              : 'w-[95vw] sm:max-w-2xl max-h-[92vh] overflow-hidden bg-surface border-border p-0 flex flex-col [&>button]:hidden'
           }
         >
           {/* Accessible title/description for coding challenges (visually hidden) */}
@@ -787,7 +886,7 @@ except Exception as e:
                   MCQ Challenge
                 </Badge>
                 <Badge variant="outline" className="text-xs border-primary/40 text-primary">
-                  🎯 Up to 2 points
+                  Up to 2 points
                 </Badge>
               </div>
               <DialogTitle className="text-foreground font-outfit text-xl">{activeChallenge?.title}</DialogTitle>
@@ -844,7 +943,7 @@ except Exception as e:
                 {mcqAttempts >= 2 && activeChallenge.hints?.[0] && (
                   <div className="flex items-start gap-2 p-3 bg-warning/10 border border-warning/30 rounded-xl">
                     <Lightbulb className="w-4 h-4 text-warning shrink-0 mt-0.5" />
-                    <p className="text-sm text-warning">💡 {activeChallenge.hints[0]}</p>
+                    <p className="text-sm text-warning">{activeChallenge.hints[0]}</p>
                   </div>
                 )}
 
@@ -854,14 +953,14 @@ except Exception as e:
                   return (
                     <div className="flex items-center gap-2 p-3 bg-accent/10 border border-accent/30 rounded-xl text-accent">
                       <CheckCircle className="w-4 h-4" />
-                      <span className="text-sm font-medium">✅ Correct! +{earnedPts} {earnedPts === 1 ? 'Point' : 'Points'} Earned</span>
+                      <span className="text-sm font-medium">Correct! +{earnedPts} {earnedPts === 1 ? 'Point' : 'Points'} Earned</span>
                     </div>
                   );
                 })()}
                 {mcqResult === 'wrong' && (
                   <div className="flex items-center gap-2 p-3 bg-destructive/10 border border-destructive/30 rounded-xl text-destructive">
                     <XCircle className="w-4 h-4" />
-                    <span className="text-sm font-medium">❌ Wrong answer. Try again!</span>
+                    <span className="text-sm font-medium">Wrong answer. Try again!</span>
                   </div>
                 )}
 
@@ -1151,7 +1250,7 @@ except Exception as e:
             <div className="w-20 h-20 rounded-full bg-accent/15 flex items-center justify-center">
               <Trophy className="w-10 h-10 text-accent" />
             </div>
-            <h2 className="text-2xl font-outfit font-bold text-foreground">Lesson Complete! 🎉</h2>
+            <h2 className="text-2xl font-outfit font-bold text-foreground">Lesson Complete!</h2>
             <p className="text-text-secondary">{lesson.title}</p>
 
             <div className="flex items-center gap-2 bg-primary/10 border border-primary/20 px-6 py-3 rounded-full">

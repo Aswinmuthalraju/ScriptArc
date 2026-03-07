@@ -5,11 +5,13 @@ import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { Code2, ArrowLeft, Loader2, GraduationCap, Users } from 'lucide-react';
+import { ArrowLeft, Loader2, GraduationCap, Users } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { ADMIN_EMAIL } from '@/lib/constants';
 
 const GoogleIcon = () => (
   <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none">
@@ -32,13 +34,23 @@ const Auth = () => {
   const [showRolePicker, setShowRolePicker] = useState(false);
   const [selectedRole, setSelectedRole] = useState('student');
 
+  // Google mentor detail fields (shown in the role picker when mentor is selected)
+  const [googleMentorData, setGoogleMentorData] = useState({
+    expertise: '', experience_years: '', bio: '', linkedin: '',
+  });
+
   const [loginData, setLoginData] = useState({ email: '', password: '' });
   const [registerData, setRegisterData] = useState({
     name: '',
     email: '',
     password: '',
     confirmPassword: '',
-    role: 'student'
+    role: 'student',
+    // mentor-only fields
+    expertise: '',
+    experience_years: '',
+    bio: '',
+    linkedin: '',
   });
 
   const handleLogin = async (e) => {
@@ -52,6 +64,9 @@ const Auth = () => {
     try {
       await login(loginData.email, loginData.password);
       toast.success('Welcome back!');
+      // Navigate to dashboard — the route guards (PublicRoute, MentorRoute, etc.)
+      // will redirect to the correct page based on the user's role and status
+      // once AuthContext finishes loading the user profile.
       navigate('/dashboard');
     } catch (error) {
       toast.error(error.message || 'Login failed');
@@ -74,12 +89,33 @@ const Auth = () => {
       toast.error('Password must be at least 6 characters');
       return;
     }
+    if (registerData.role === 'mentor' && !registerData.expertise.trim()) {
+      toast.error('Please enter your area of expertise');
+      return;
+    }
 
     setLoading(true);
     try {
-      await register(registerData.name, registerData.email, registerData.password, registerData.role);
-      toast.success('Account created successfully!');
-      navigate('/dashboard');
+      const authUser = await register(
+        registerData.name, registerData.email, registerData.password, registerData.role
+      );
+
+      if (registerData.role === 'mentor') {
+        // Insert mentor application profile (pending approval)
+        await supabase.from('mentor_profiles').insert({
+          user_id: authUser.id,
+          expertise: registerData.expertise.trim() || null,
+          experience_years: registerData.experience_years ? parseInt(registerData.experience_years) : null,
+          bio: registerData.bio.trim() || null,
+          linkedin_url: registerData.linkedin.trim() || null,
+          status: 'pending',
+        });
+        toast.success('Application submitted! Awaiting admin approval.');
+        navigate('/mentor/pending');
+      } else {
+        toast.success('Account created successfully!');
+        navigate('/dashboard');
+      }
     } catch (error) {
       toast.error(error.message || 'Registration failed');
     } finally {
@@ -100,9 +136,18 @@ const Auth = () => {
   };
 
   const handleRoleConfirm = async () => {
+    // Validate mentor fields before proceeding
+    if (selectedRole === 'mentor' && !googleMentorData.expertise.trim()) {
+      toast.error('Please enter your area of expertise');
+      return;
+    }
     setShowRolePicker(false);
     localStorage.setItem('pendingRole', selectedRole);
     localStorage.setItem('googleAuthAction', 'register');
+    // Store mentor application details so AuthCallback can create the profile
+    if (selectedRole === 'mentor') {
+      localStorage.setItem('pendingMentorData', JSON.stringify(googleMentorData));
+    }
     await initiateGoogleOAuth();
   };
 
@@ -343,6 +388,57 @@ const Auth = () => {
                       </button>
                     </div>
                   </div>
+                  {/* Mentor-specific extra fields */}
+                  {registerData.role === 'mentor' && (
+                    <div className="space-y-3 p-4 bg-primary/5 border border-primary/20 rounded-md">
+                      <p className="text-xs font-medium text-primary uppercase tracking-wider">Mentor Application</p>
+                      <div className="space-y-2">
+                        <Label className="text-text-secondary text-xs">Area of Expertise *</Label>
+                        <Input
+                          placeholder="e.g. Python, Data Science, Machine Learning"
+                          value={registerData.expertise}
+                          onChange={(e) => setRegisterData({ ...registerData, expertise: e.target.value })}
+                          className="input-dark"
+                          data-testid="mentor-expertise"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-text-secondary text-xs">Years of Experience</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          max="50"
+                          placeholder="e.g. 3"
+                          value={registerData.experience_years}
+                          onChange={(e) => setRegisterData({ ...registerData, experience_years: e.target.value })}
+                          className="input-dark"
+                          data-testid="mentor-experience"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-text-secondary text-xs">Short Bio</Label>
+                        <Textarea
+                          placeholder="Tell us about yourself..."
+                          value={registerData.bio}
+                          onChange={(e) => setRegisterData({ ...registerData, bio: e.target.value })}
+                          className="input-dark resize-none"
+                          rows={3}
+                          data-testid="mentor-bio"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-text-secondary text-xs">LinkedIn / Portfolio (optional)</Label>
+                        <Input
+                          placeholder="https://linkedin.com/in/..."
+                          value={registerData.linkedin}
+                          onChange={(e) => setRegisterData({ ...registerData, linkedin: e.target.value })}
+                          className="input-dark"
+                          data-testid="mentor-linkedin"
+                        />
+                      </div>
+                    </div>
+                  )}
+
                   <Button
                     type="submit"
                     className="w-full btn-primary py-5"
@@ -351,6 +447,8 @@ const Auth = () => {
                   >
                     {loading ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : registerData.role === 'mentor' ? (
+                      'Submit Application'
                     ) : (
                       'Create Account'
                     )}
@@ -416,6 +514,54 @@ const Auth = () => {
                   </div>
                 </button>
               </div>
+
+              {/* Mentor detail fields — shown when Mentor is selected in Google role picker */}
+              {selectedRole === 'mentor' && (
+                <div className="space-y-3 p-4 bg-primary/5 border border-primary/20 rounded-md">
+                  <p className="text-xs font-medium text-primary uppercase tracking-wider">Mentor Application</p>
+                  <div className="space-y-2">
+                    <Label className="text-text-secondary text-xs">Area of Expertise *</Label>
+                    <Input
+                      placeholder="e.g. Python, Data Science, Machine Learning"
+                      value={googleMentorData.expertise}
+                      onChange={(e) => setGoogleMentorData({ ...googleMentorData, expertise: e.target.value })}
+                      className="input-dark"
+                      data-testid="google-mentor-expertise"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-text-secondary text-xs">Years of Experience</Label>
+                    <Input
+                      type="number" min="0" max="50"
+                      placeholder="e.g. 3"
+                      value={googleMentorData.experience_years}
+                      onChange={(e) => setGoogleMentorData({ ...googleMentorData, experience_years: e.target.value })}
+                      className="input-dark"
+                      data-testid="google-mentor-experience"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-text-secondary text-xs">Short Bio</Label>
+                    <Textarea
+                      placeholder="Tell us about yourself..."
+                      value={googleMentorData.bio}
+                      onChange={(e) => setGoogleMentorData({ ...googleMentorData, bio: e.target.value })}
+                      className="input-dark resize-none" rows={3}
+                      data-testid="google-mentor-bio"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-text-secondary text-xs">LinkedIn / Portfolio (optional)</Label>
+                    <Input
+                      placeholder="https://linkedin.com/in/..."
+                      value={googleMentorData.linkedin}
+                      onChange={(e) => setGoogleMentorData({ ...googleMentorData, linkedin: e.target.value })}
+                      className="input-dark"
+                      data-testid="google-mentor-linkedin"
+                    />
+                  </div>
+                </div>
+              )}
 
               <div className="flex gap-3 pt-2">
                 <Button
